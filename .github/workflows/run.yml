@@ -1,4 +1,4 @@
-yamlname: 24h美股回调自动监控
+name: 24h美股回调自动监控
 
 on:
   push:
