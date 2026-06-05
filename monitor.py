@@ -227,3 +227,7 @@ def run_integrated_sentinel():
             )
             send_bark_notification(title, body, group_name="1w增量定投池")
         else:
+            print(f" -> 提示: 今天（{current_day}号）大盘短线处于多头过热主升浪，未触及MA20均线回踩。定投继续保持静默。")
+
+if __name__ == "__main__":
+    run_integrated_sentinel()
