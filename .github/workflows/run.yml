@@ -1,0 +1,33 @@
+name: 24h美股回调自动监控
+
+on:
+  push:
+    branches: [ main ]  # 当代码更新时触发一次测试
+  schedule:
+    # 定时任务：每周一到周五，美东时间盘中及盘后每小时运行一次
+    # GitHub 使用 UTC 时间（比北京时间慢 8 小时）
+    # 下面的 cron 代表：在北京时间周二到周六的凌晨 1点到早上 9点，每小时的第 0 分钟运行
+    - cron: '0 17-23 * * 1-5'
+    - cron: '0 0-1 * * 2-6'
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+    - name: 1. 检查代码
+      uses: actions/checkout@v3
+
+    - name: 2. 安装 Python 环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: 3. 安装金融数据依赖库
+      run: |
+        pip install yfinance requests
+
+    - name: 4. 执行监控并发送微信提醒
+      env:
+        # 把我们刚刚存的 Secret 变量传入服务器环境中
+        SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
+      run: python monitor.py
