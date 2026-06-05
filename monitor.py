@@ -15,7 +15,7 @@ MONITOR_POOL = {
     "AAPL": {"name": "苹果",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "MSFT": {"name": "微软",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "NVDA": {"name": "英伟达",     "min": 5.0, "max": 10.0, "risk_pct": 8.0},
-    "GOOGL":{"name": "谷歌-C",       "min": 5.0, "max": 10.0, "risk_pct": 6.0},
+    "GOOG": {"name": "谷歌-C",     "min": 5.0, "max": 10.0, "risk_pct": 6.0},  # 🟢 已经完美升级为谷歌C(GOOG)
     "AMZN": {"name": "亚马逊",     "min": 5.0, "max": 10.0, "risk_pct": 6.0},
     "META": {"name": "Meta",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "TSLA": {"name": "特斯拉",     "min": 6.0, "max": 12.0, "risk_pct": 5.0},
@@ -82,7 +82,7 @@ def check_drawdown():
             # 1. 拿到近30个交易日的最高价
             recent_high = df["High"].tail(30).max()
             
-            # 2. 🟢 核心升级：优先使用 fast_info 里的实时/最后收盘价，彻底对齐昨日最新收盘价
+            # 2. 优先使用 fast_info 里的实时/最后收盘价，彻底对齐昨日最新收盘价
             current_price = stock.fast_info.get('lastPrice')
             
             # 如果 fast_info 没抓到有效数字，再用常规历史数据兜底
