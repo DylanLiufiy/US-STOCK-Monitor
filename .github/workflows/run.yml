@@ -4,12 +4,7 @@ on:
   push:
     branches: [ main ]
   schedule:
-    # 在北京时间周一至周五的晚上 21点 至 次日凌晨 5点，每小时的第 0 分钟自动运行
     - cron: '0 13-21 * * 1-5'
-
-# 在全局层面注入官方推荐的变量，强制让所有插件直接在全新的 Node.js 24 环境下跑
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   monitor:
@@ -30,4 +25,5 @@ jobs:
     - name: 4. 执行监控并发送微信提醒
       env:
         SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
-      run: python monitor.py
+        FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      run: python Monitor.py
