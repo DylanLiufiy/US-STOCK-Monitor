@@ -3,6 +3,7 @@ import sys
 from datetime import datetime
 import requests
 import yfinance as yf
+import math
 
 # 1. 配置你的总预算
 TOTAL_BUDGET = 30000.0
@@ -78,25 +79,27 @@ def check_drawdown():
             if df.empty:
                 continue
 
-            # 拿到近30个交易日的最高价
+            # 1. 拿到近30个交易日的最高价
             recent_high = df["High"].tail(30).max()
             
-            # 🟢 核心修复：自适应处理非交易时段。如果最新一行是 nan，则自动循环向前捕获有效价格
-            current_price = None
-            for i in range(1, len(df) + 1):
-                price_check = df["Close"].iloc[-i]
-                import math
-                if not math.isnan(price_check):
-                    current_price = price_check
-                    break
+            # 2. 🟢 核心升级：优先使用 fast_info 里的实时/最后收盘价，彻底对齐昨日最新收盘价
+            current_price = stock.fast_info.get('lastPrice')
             
-            if current_price is None:
+            # 如果 fast_info 没抓到有效数字，再用常规历史数据兜底
+            if current_price is None or math.isnan(current_price):
+                for i in range(1, len(df) + 1):
+                    price_check = df["Close"].iloc[-i]
+                    if not math.isnan(price_check):
+                        current_price = price_check
+                        break
+            
+            if current_price is None or math.isnan(current_price):
                 print(f"[{ticker}] 无法捕获到任何有效当前价，跳过")
                 continue
 
             drawdown = (recent_high - current_price) / recent_high * 100
 
-            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 最新有效价 ${current_price:.2f} | 真实跌幅: -{drawdown:.2f}%")
+            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 最新价 ${current_price:.2f} | 真实跌幅: -{drawdown:.2f}%")
 
             if min_drop <= drawdown <= max_drop:
                 alert_triggered = True
