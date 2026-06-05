@@ -15,7 +15,7 @@ MONITOR_POOL = {
     "AAPL": {"name": "苹果",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "MSFT": {"name": "微软",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "NVDA": {"name": "英伟达",     "min": 5.0, "max": 10.0, "risk_pct": 8.0},
-    "GOOGL":{"name": "谷歌",       "min": 5.0, "max": 10.0, "risk_pct": 6.0},
+    "GOOGL":{"name": "谷歌-C",       "min": 5.0, "max": 10.0, "risk_pct": 6.0},
     "AMZN": {"name": "亚马逊",     "min": 5.0, "max": 10.0, "risk_pct": 6.0},
     "META": {"name": "Meta",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
     "TSLA": {"name": "特斯拉",     "min": 6.0, "max": 12.0, "risk_pct": 5.0},
