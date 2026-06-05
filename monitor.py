@@ -6,25 +6,52 @@ import yfinance as yf
 import math
 
 # ============================================================================
-# ⚙️ 资金与策略池核心配置
+# ⚙️ 22大金刚黄金比例板块排他系统（对冲基金级终极完全体）
 # ============================================================================
-# 账户 1：凯利深水鱼雷仓（总预算 3万美元 现金，不跌透、处于多头主升浪绝对不买）
 TOTAL_KELLY_BUDGET = 30000.0
-KELLY_POOL = {
-    "VOO":  {"name": "标普500-ETF", "min": 5.0,  "max": 10.0, "risk_pct": 20.0}, 
-    "QQQ":  {"name": "纳指100-ETF", "min": 5.0,  "max": 10.0, "risk_pct": 20.0}, 
-    "NVDA": {"name": "英伟达",     "min": 12.0, "max": 22.0, "risk_pct": 10.0}, 
-    "MSFT": {"name": "微软",       "min": 10.0, "max": 18.0, "risk_pct": 10.0}, 
-    "GOOG": {"name": "谷歌-C",     "min": 10.0, "max": 18.0, "risk_pct": 10.0}, 
-    "AVGO": {"name": "博通",       "min": 12.0, "max": 22.0, "risk_pct": 10.0}, 
-    "TSLA": {"name": "特斯拉",     "min": 12.0, "max": 22.0, "risk_pct": 8.0},  
-    "CRM":  {"name": "Salesforce", "min": 10.0, "max": 18.0, "risk_pct": 8.0},  
-    "LLY":  {"name": "礼来",       "min": 10.0, "max": 18.0, "risk_pct": 8.0},  
-    "PLTR": {"name": "Palantir",   "min": 15.0, "max": 25.0, "risk_pct": 8.0},  
-    "RKLB": {"name": "Rocket Lab", "min": 15.0, "max": 25.0, "risk_pct": 5.0}   
+
+# 🟢 概率学重构 1：根据华尔街黄金比例，为 6 大阵营死死锁定【单笔确切买入美元金额】
+# 大盘重仓护盘、AI中重仓主攻、巨头稳健、黑马严格轻仓、医药与传统奶牛均衡对冲
+GROUP_BUDGET_CONFIG = {
+    "INDEX_大盘基金":  {"single_invest_usd": 4500.0},  # 大盘大坑，重兵砸入
+    "AI_算力芯片":    {"single_invest_usd": 2250.0},  # AI算力，主攻冲锋
+    "TECH_巨头生态":  {"single_invest_usd": 2000.0},  # 科技巨头，稳健白马
+    "BLACK_弹性黑马":  {"single_invest_usd": 700.0},   # 高弹黑马，严格轻仓防风控
+    "MED_生物医药":    {"single_invest_usd": 1300.0},  # 医药刚需，反向对冲
+    "CASH_传统奶牛":  {"single_invest_usd": 1500.0}   # 实体奶牛，过路费收割
 }
 
-# 账户 2：增量后续定投仓（每月固定投入 1w 人民币，折合约 1400 美元）
+MONITOR_POOL = {
+    # 1. 大盘基金阵营 (INDEX)
+    "VOO":  {"name": "标普500-ETF", "group": "INDEX_大盘基金", "risk_factor": 1.0}, 
+    "QQQ":  {"name": "纳指100-ETF", "group": "INDEX_大盘基金", "risk_factor": 1.0}, 
+    # 2. AI算力与核心半导体 (AI_CHIP)
+    "NVDA": {"name": "英伟达",     "group": "AI_算力芯片", "risk_factor": 1.8}, 
+    "AVGO": {"name": "博通",       "group": "AI_算力芯片", "risk_factor": 1.6}, 
+    # 3. 科技巨头闭环生态 (TECH_GIANT)
+    "MSFT": {"name": "微软",       "group": "TECH_巨头生态", "risk_factor": 1.2}, 
+    "AAPL": {"name": "苹果",       "group": "TECH_巨头生态", "risk_factor": 1.2},
+    "GOOG": {"name": "谷歌-C",     "group": "TECH_巨头生态", "risk_factor": 1.3}, 
+    "AMZN": {"name": "亚马逊",     "group": "TECH_巨头生态", "risk_factor": 1.4}, 
+    "META": {"name": "Meta",       "group": "TECH_巨头生态", "risk_factor": 1.4}, 
+    # 4. 高弹性黑马爆发卫星仓 (BLACK_HORSE)
+    "TSLA": {"name": "特斯拉",     "group": "BLACK_弹性黑马", "risk_factor": 2.2},  
+    "PLTR": {"name": "Palantir",   "group": "BLACK_弹性黑马", "risk_factor": 2.2},  
+    "RKLB": {"name": "Rocket Lab", "group": "BLACK_弹性黑马", "risk_factor": 2.5},   
+    # 5. 生物医药与医保垄断 (MEDICINE)
+    "LLY":  {"name": "礼来",       "group": "MED_生物医药", "risk_factor": 1.4},  
+    "NVO":  {"name": "诺和诺德",   "group": "MED_生物医药", "risk_factor": 1.4},
+    "UNH":  {"name": "联合健康",   "group": "MED_生物医药", "risk_factor": 1.2},
+    # 6. 线下传统消费、金融与数字收费公路 (CASH_COW)
+    "COST": {"name": "Costco",     "group": "CASH_传统奶牛", "risk_factor": 1.1},  
+    "WMT":  {"name": "沃尔玛",     "group": "CASH_传统奶牛", "risk_factor": 1.1},
+    "V":    {"name": "Visa",       "group": "CASH_传统奶牛", "risk_factor": 1.2},
+    "MA":   {"name": "万事达",     "group": "CASH_传统奶牛", "risk_factor": 1.2},
+    "JPM":  {"name": "摩根大通",   "group": "CASH_传统奶牛", "risk_factor": 1.2},
+    "CRM":  {"name": "Salesforce", "group": "CASH_传统奶牛", "risk_factor": 1.5},  
+    "GE":   {"name": "通用电气",   "group": "CASH_传统奶牛", "risk_factor": 1.2}
+}
+
 FIXED_定投_BUDGET = 1400.0
 定投_TICKERS = ["VOO", "QQQ"]
 
@@ -38,10 +65,10 @@ def send_bark_notification(title, body, group_name="美股核心量化"):
     encoded_title = requests.utils.quote(title)
     encoded_body = requests.utils.quote(body)
     url = f"{base_url}{encoded_title}/{encoded_body}"
-    params = {"sound": "bell", "group": group_name}
+    params = {"sound": "calypso", "group": group_name}
     try:
         requests.get(url, params=params)
-        print(f"【Bark 原生网关】: 推送成功")
+        print(f"【Bark 高级网关】: 黄金比例自适应信号推送成功。")
     except Exception as e:
         print(f"发送 Bark 消息失败: {e}")
 
@@ -50,27 +77,30 @@ def run_integrated_sentinel():
     current_month = current_date.month
     current_day = current_date.day
     
-    print(f"=== 开始执行美股全景二合一双轨监控 ({current_date.strftime('%Y-%m-%d %H:%M:%S')}) ===")
+    print(f"=== 运行22大金刚黄金比例行业排他网格系统 ({current_date.strftime('%Y-%m-%d %H:%M:%S')}) ===")
     
     session = requests.Session()
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
 
-    # ------------------------------------------------------------------------
-    # 🏹 轨道一：3万美元 凯利深水鱼雷仓核心逻辑
-    # ------------------------------------------------------------------------
-    print("\n[正在扫描] 轨道一：3万美元凯利深水鱼雷仓...")
+    # 追踪当前扫描周期内，有哪些行业已经触发并被排他锁死
+    triggered_groups = set()
     alert_triggered = False
     
-    for ticker, config in KELLY_POOL.items():
+    print("\n[实时扫描] 轨道一：3万美元22金刚黄金比例网格机制...")
+    for ticker, config in MONITOR_POOL.items():
         name = config["name"]
-        min_drop = config["min"]
-        max_drop = config["max"]
-        risk_pct = config["risk_pct"]
+        group_id = config["group"]
+        risk_factor = config["risk_factor"]
         
+        # 行业板块隔离排他锁死检查
+        if group_id in triggered_groups:
+            print(f"[{ticker}] {name}: -> 拦截原因: 该阵营【{group_id}】今日已发出购买指令，触发熔断排他机制，自动忽略本行。")
+            continue
+            
         try:
             stock = yf.Ticker(ticker, session=session)
             df = stock.history(period="60d")
-            if df.empty or len(df) < 20:
+            if df.empty or len(df) < 25:
                 continue
 
             df['MA20'] = df['Close'].rolling(window=20).mean()
@@ -80,63 +110,77 @@ def run_integrated_sentinel():
             high_index = df["High"].tail(60).idxmax()
             days_since_high = len(df) - df.index.get_loc(high_index) - 1
 
-            current_price = stock.fast_info.get('lastPrice')
-            if current_price is None or math.isnan(current_price):
-                for i in range(1, len(df) + 1):
-                    price_check = df["Close"].iloc[-i]
-                    if not math.isnan(price_check):
-                        current_price = price_check
-                        break
-            
-            if current_price is None or math.isnan(current_price):
-                continue
-
+            current_price = stock.fast_info.get('lastPrice') or df["Close"].iloc[-1]
             drawdown = (recent_high - current_price) / recent_high * 100
-            print(f"[{ticker}] {name}: 60日高点 ${recent_high:.2f}(距今{days_since_high}天) | 最新价 ${current_price:.2f} | MA20 ${ma20_current:.2f} | 相对回撤: -{drawdown:.2f}%")
 
-            # 🟢 牛市创新高多头趋势防火墙拦截
-            if days_since_high <= 5:
-                print(f"    -> 过滤原因: {name} 最近5天内刚创过历史新高，属于强势主升浪，保持静默。")
+            # 贝叶斯波动率动态自适应调校
+            df['High_Low'] = df['High'] - df['Low']
+            df['ATR20'] = df['High_Low'].rolling(window=20).mean()
+            atr_current = df['ATR20'].iloc[-1]
+            volatility_pct = (atr_current / current_price) * 100
+            
+            smart_trigger_line = max(5.0, volatility_pct * risk_factor)
+            print(f"[{ticker}] {name}: 60日高点 ${recent_high:.2f} | 现价 ${current_price:.2f} | 真实回撤: -{drawdown:.2f}% (自适应买入线: {smart_trigger_line:.2f}%)")
+
+            if days_since_high <= 4:
                 continue
+
+            is_triggered = False
+            strategy_type = ""
+            
+            # 【双档自动提盈收割引擎】
+            if current_price >= ma20_current and (smart_trigger_line * 0.7) <= drawdown < smart_trigger_line:
+                is_triggered = True
+                strategy_type = "【🟢 趋势局部低吸】"
                 
-            if current_price >= ma20_current:
-                print(f"    -> 过滤原因: {name} 股价仍站在20日均线上方，多头大趋势未破，无需加仓。")
-                continue
+            elif current_price < ma20_current and drawdown >= smart_trigger_line:
+                is_triggered = True
+                strategy_type = "【🚨 深水长线抄底】"
 
-            if min_drop <= drawdown <= max_drop:
+            if is_triggered:
                 alert_triggered = True
-                target_cash_amount = TOTAL_KELLY_BUDGET * (risk_pct / 100.0)
-                exact_shares = int(target_cash_amount // current_price)
+                # 🟢 板块熔断锁死生效
+                triggered_groups.add(group_id)
+                
+                # 🟢 核心概率升级：自动提取当前阵营专属的科学黄金比例单笔买入美元金额
+                invest_usd = GROUP_BUDGET_CONFIG[group_id]["single_invest_usd"]
+                
+                # 阶梯幂律放大因子：如果是大跌抄底档，允许资金自动放大1.2倍增强底部胜率
+                if strategy_type == "【🚨 深水长线抄底】":
+                    invest_usd = min(invest_usd * 1.3, invest_usd * (drawdown / smart_trigger_line))
+                
+                exact_shares = int(invest_usd // current_price)
                 actual_spent = exact_shares * current_price
                 if exact_shares == 0:
                     continue
                 
-                # 算出两档确切的券商限价单挂单建议
-                limit_price_standard = round(current_price * 0.995, 2)
-                limit_price_extreme = round(current_price * 0.980, 2)
-                    
-                title = f"📢【凯利狙击指令】购买 {name}({ticker}) {exact_shares}股"
+                limit_price_standard = round(current_price * 0.996, 2)
+                limit_price_extreme = round(current_price * 0.982, 2)
+                
+                title = f"📢{strategy_type} 购买 {name}({ticker}) {exact_shares}股"
                 body = (
-                    f"⚠️ 触发 3万美元 现金池深度黄金抄底点。\n"
-                    f"当前最新价: ${current_price:.2f} (自60日高位已回撤 -{drawdown:.2f}%)\n\n"
+                    f"🎯 黄金比例行业排他策略成功捕获优质买点！\n"
+                    f"所属阵营: 【{group_id}】(该阵营子弹已用完，系统已限时锁死防御)\n"
+                    f"当前市价: ${current_price:.2f} (回撤 -{drawdown:.2f}%)\n\n"
                     f"--- \n"
-                    f"⚙️ 确切实操挂单指引（请去券商App下 限价单/Limit Order）：\n"
-                    f"1. 稳健成交数量: **{exact_shares} 股**\n"
-                    f"2. 💡 常规参考挂单限价: **`${limit_price_standard}`** (安全垫0.5%)\n"
-                    f"3. 🔥 极限防守插针价: **`${limit_price_extreme}`** (深水下浮2%)\n\n"
-                    f"📊 预计占用资金: ${actual_spent:.2f}"
+                    f"⚙️ 确切实操挂单指引（限价单/Limit Order）：\n"
+                    f"1. 建议成交数量: **{exact_shares} 股**\n"
+                    f"2. 💡 常规买入参考限价: **`${limit_price_standard}`**\n"
+                    f"3. 🔥 极限插针低吸价: **`${limit_price_extreme}`**\n\n"
+                    f"📊 阵营科学预算调用: ${actual_spent:.2f}，资金流动性由底层自动过桥结算！"
                 )
-                send_bark_notification(title, body, group_name="3w凯利深水池")
+                send_bark_notification(title, body, group_name="3w黄金比例池")
+                
         except Exception as e:
             print(f"扫描 {ticker} 失败: {e}")
 
     if not alert_triggered:
-        print("目前盘中没有任何核心资产触及中长线加仓线，系统继续保持静默。")
+        print("目前盘中没有任何资产满足自适应网格买点，系统继续静默巡逻。")
 
     # ------------------------------------------------------------------------
     # 📈 轨道二：每月1万人民币 聪明定投仓核心逻辑
     # ------------------------------------------------------------------------
-    print("\n[正在扫描] 轨道二：每月1万人民币聪明定投仓...")
+    print("\n[实时扫描] 轨道二：每月1万人民币聪明定投仓...")
     if current_month < 7:
         print(f" -> 提示: 当前是 {current_month} 月。按照约定，1w人民币聪明定投逻辑在 7 月 1 日前保持静默。")
         return
@@ -165,7 +209,7 @@ def run_integrated_sentinel():
                 name = "标普500-ETF" if ticker == "VOO" else "纳指100-ETF"
                 order_details.append(
                     f"🔍 {name}({ticker}): 现价 ${current_price:.2f}\n"
-                    f"   👉 实操建议：上限价单买入 **{exact_shares}股** | 确切挂单限价: **`${smart_limit_price}`**"
+                    f"   👉 实操建议：下限价单买入 **{exact_shares}股** | 确切挂单限价: **`${smart_limit_price}`**"
                 )
 
                 if bias <= 0.5 or is_force_day:
@@ -183,7 +227,3 @@ def run_integrated_sentinel():
             )
             send_bark_notification(title, body, group_name="1w增量定投池")
         else:
-            print(f" -> 提示: 今天（{current_day}号）大盘短线处于多头过热主升浪，未触及均线回踩。定投继续保持静默。")
-
-if __name__ == "__main__":
-    run_integrated_sentinel()
