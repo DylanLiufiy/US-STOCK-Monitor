@@ -26,4 +26,4 @@ jobs:
       env:
         SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: python Monitor.py
+      run: python monitor.py
