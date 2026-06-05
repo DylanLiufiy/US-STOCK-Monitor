@@ -6,6 +6,10 @@ import yfinance as yf
 
 # 1. 定义监控的“七姐妹”美股代码
 MAG_SEVEN = {
+   # 0. 核心指数大盘基金（中长线定海神针）
+    "QQQ": "纳指100-ETF",
+    "VOO": "标普500-ETF",
+    
     # 1. 传统七姐妹
     "AAPL": "苹果",
     "MSFT": "微软",
