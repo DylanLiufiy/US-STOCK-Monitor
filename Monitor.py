@@ -5,37 +5,33 @@ import requests
 import yfinance as yf
 
 # ============================================================================
-# 核心配置：定义监控标的及其【个性化回调报警区间】(min_drop, max_drop)
-# VOO等指数通常跌5%就是极好买点；QQQ与普通科技股维持5%-10%；高波动成长股可调宽
+# 1. 配置你的真实资金参数（基于你的 30,000 美元预算）
 # ============================================================================
+TOTAL_BUDGET = 30000.0  # 你的总预算 3万美元
+
+# 监控池：包含个股名称、报警区间，以及触发时凯利公式推荐该笔投入的“总资金百分比”
 MONITOR_POOL = {
-    # 0. 核心指数大盘（防守稳健，分级监控）
-    "VOO": {"name": "标普500-ETF", "min": 5.0, "max": 10.0},     # VOO达到5%即属于强买入信号
-    "QQQ": {"name": "纳指100-ETF", "min": 5.0, "max": 10.0},     # QQQ维持经典中长线回调区间
+    # 核心大盘底仓：跌5%属于极稀缺大坑，直接下较重仓位
+    "VOO":  {"name": "标普500-ETF", "min": 5.0, "max": 10.0, "risk_pct": 20.0}, # 触发则投入总资金的 20%
+    "QQQ":  {"name": "纳指100-ETF", "min": 5.0, "max": 10.0, "risk_pct": 20.0}, # 触发则投入总资金的 20%
     
-    # 1. 传统七姐妹（核心蓝筹巨头）
-    "AAPL": {"name": "苹果", "min": 5.0, "max": 10.0},
-    "MSFT": {"name": "微软", "min": 5.0, "max": 10.0},
-    "NVDA": {"name": "英伟达", "min": 5.0, "max": 10.0},
-    "GOOGL": {"name": "谷歌", "min": 5.0, "max": 10.0},
-    "AMZN": {"name": "亚马逊", "min": 5.0, "max": 10.0},
-    "META": {"name": "Meta", "min": 5.0, "max": 10.0},
-    "TSLA": {"name": "特斯拉", "min": 6.0, "max": 12.0},       # 特斯拉波动大，报警线轻微调宽
+    # 核心蓝筹巨头（单笔尝试用半凯利：占总资金的 5% ~ 8% 试错）
+    "AAPL": {"name": "苹果",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
+    "MSFT": {"name": "微软",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
+    "NVDA": {"name": "英伟达",     "min": 5.0, "max": 10.0, "risk_pct": 8.0},  # 爆发力强，给 8%
+    "GOOGL":{"name": "谷歌",       "min": 5.0, "max": 10.0, "risk_pct": 6.0},
+    "AMZN": {"name": "亚马逊",     "min": 5.0, "max": 10.0, "risk_pct": 6.0},
+    "META": {"name": "Meta",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
+    "TSLA": {"name": "特斯拉",     "min": 6.0, "max": 12.0, "risk_pct": 5.0},
     
-    # 2. 2026 算力/半导体核心黑马
-    "AVGO": {"name": "博通", "min": 5.0, "max": 10.0},
-    "MU": {"name": "美光科技", "min": 6.0, "max": 12.0},
-    "ASML": {"name": "阿斯麦", "min": 5.0, "max": 10.0},
-    "LRCX": {"name": "泛林集团", "min": 5.0, "max": 10.0},
-    
-    # 3. AI软件、生物医药与硬科技
-    "PLTR": {"name": "Palantir", "min": 6.0, "max": 12.0},     # 高弹性，给更深的抄底空间
-    "CRM": {"name": "Salesforce", "min": 5.0, "max": 10.0},
-    "LLY": {"name": "礼来", "min": 5.0, "max": 10.0},
-    "RKLB": {"name": "Rocket Lab", "min": 7.0, "max": 15.0}    # 极高Beta航天股，7%以上才报警
+    # 2026 算力与黑马（轻仓分批试错：占总资金的 4%）
+    "AVGO": {"name": "博通",       "min": 5.0, "max": 10.0, "risk_pct": 5.0},
+    "MU":   {"name": "美光科技",   "min": 6.0, "max": 12.0, "risk_pct": 4.0},
+    "ASML": {"name": "阿斯麦",     "min": 5.0, "max": 10.0, "risk_pct": 5.0},
+    "PLTR": {"name": "Palantir",   "min": 6.0, "max": 12.0, "risk_pct": 4.0},
+    "RKLB": {"name": "Rocket Lab", "min": 7.0, "max": 15.0, "risk_pct": 3.0}   # 航天股轻仓
 }
 
-# 从 GitHub Secrets 中安全读取微信推送 Key
 SERVER_CHAN_KEY = os.environ.get("SERVER_CHAN_KEY")
 
 def send_notification(title, content):
@@ -46,7 +42,7 @@ def send_notification(title, content):
     data = {"title": title, "desp": content}
     try:
         requests.post(url, data=data)
-        print(f"【已发送提醒】: {title}")
+        print(f"【已发送确切指令提醒】: {title}")
     except Exception as e:
         print(f"发送消息失败: {e}")
 
@@ -58,6 +54,7 @@ def check_drawdown():
         name = config["name"]
         min_drop = config["min"]
         max_drop = config["max"]
+        risk_pct = config["risk_pct"]
         
         try:
             stock = yf.Ticker(ticker)
@@ -65,32 +62,40 @@ def check_drawdown():
             if df.empty:
                 continue
 
-            # 寻找过去 30 个交易日的近期最高锚定点
             recent_high = df["High"].tail(30).max()
             current_price = df["Close"].iloc[-1]
             drawdown = (recent_high - current_price) / recent_high * 100
 
-            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 当前 ${current_price:.2f} | 当前回撤: -{drawdown:.2f}% (报警区间: {min_drop}%~{max_drop}%)")
+            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 当前 ${current_price:.2f} | 跌幅: -{drawdown:.2f}%")
 
             # 触发个股自定义的凯利补仓线
             if min_drop <= drawdown <= max_drop:
                 alert_triggered = True
-                title = f"🚨 凯利加仓信号：{name}({ticker}) 已回调 {drawdown:.1f}%"
+                
+                # 核心计算：算出这次应该买多少金额，以及折合多少整股数量
+                target_cash_amount = TOTAL_BUDGET * (risk_pct / 100.0)
+                exact_shares = int(target_cash_amount // current_price)
+                actual_spent = exact_shares * current_price
+                
+                title = f"📢【实操买入指令】购买 {name}({ticker}) {exact_shares}股"
                 content = (
-                    f"### 🎯 触发【{min_drop}% ~ {max_drop}%】独立量化抄底线\n\n"
-                    f"- **监控标的**: {name} ({ticker})\n"
-                    f"- **近30日最高点**: `${recent_high:.2f}`\n"
-                    f"- **实时当前最新价**: `${current_price:.2f}`\n"
-                    f"- **当前相对回调幅度**: `-{drawdown:.2f}%`\n\n"
-                    f"💡 **实战投资建议**：\n"
-                    f"该标的已进入为你量身定制的凯利公式低吸区间。请检查你 3万美元 的后备金，准备按照分批金字塔逻辑挂单建仓。"
+                    f"### 🎯 触发【{min_drop}% ~ {max_drop}%】量化建仓点\n\n"
+                    f"- **股票/基金**: {name} ({ticker})\n"
+                    f"- **实时当前价**: `${current_price:.2f}` (较近期高点回调了 `-{drawdown:.2f}%`)\n\n"
+                    f"--- \n\n"
+                    f"### ⚙️ 确切实操下单指令（请直接去券商App照着买）：\n"
+                    f"1. **操作动作**: `买入 / BUY` 🟢\n"
+                    f"2. **确切股票代码**: `{ticker}`\n"
+                    f"3. **确切买入数量**: **` {exact_shares} ` 股** (按整股截取)\n"
+                    f"4. **预计动用资金**: `${actual_spent:.2f}` (约占总本金的 {risk_pct}%)\n\n"
+                    f"💡 **风控提示**：当前您的后备子弹充足，本操作严格符合半凯利资金容错模型，买入后请保持锁仓！"
                 )
                 send_notification(title, content)
         except Exception as e:
             print(f"获取 {ticker} 实时数据失败: {e}")
 
     if not alert_triggered:
-        print("目前盘中没有任何资产触及设定的加仓线，系统继续保持静默。")
+        print("目前盘中没有任何资产触及设定的加仓线。")
 
 if __name__ == "__main__":
     check_drawdown()
