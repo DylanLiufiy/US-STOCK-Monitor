@@ -1,14 +1,15 @@
-name: 24h美股回调自动监控
+yamlname: 24h美股回调自动监控
 
 on:
   push:
-    branches: [ main ]  # 当代码更新时触发一次测试
+    branches: [ main ]
   schedule:
-    # 定时任务：每周一到周五，美东时间盘中及盘后每小时运行一次
-    # GitHub 使用 UTC 时间（比北京时间慢 8 小时）
-    # 下面的 cron 代表：在北京时间周二到周六的凌晨 1点到早上 9点，每小时的第 0 分钟运行
-    - cron: '0 17-23 * * 1-5'
-    - cron: '0 0-1 * * 2-6'
+    # 在北京时间周一至周五的晚上 21点 至 次日凌晨 5点，每小时的第 0 分钟自动运行
+    - cron: '0 13-21 * * 1-5'
+
+# 在全局层面注入官方推荐的变量，强制让所有插件直接在全新的 Node.js 24 环境下跑
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   monitor:
@@ -28,6 +29,5 @@ jobs:
 
     - name: 4. 执行监控并发送微信提醒
       env:
-        # 把我们刚刚存的 Secret 变量传入服务器环境中
         SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
-      run: python Monitor.py
+      run: python monitor.py
