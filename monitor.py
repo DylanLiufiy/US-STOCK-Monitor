@@ -25,30 +25,45 @@ MONITOR_POOL = {
     "RKLB": {"name": "Rocket Lab", "min": 7.0, "max": 15.0, "risk_pct": 3.0}
 }
 
-SERVER_CHAN_KEY = os.environ.get("SERVER_CHAN_KEY")
+FEISHU_WEBHOOK = os.environ.get("FEISHU_WEBHOOK")
 
-def send_notification(title, content):
-    if not SERVER_CHAN_KEY:
-        print("未配置 SERVER_CHAN_KEY，取消发送")
+def send_feishu_notification(title, markdown_content):
+    if not FEISHU_WEBHOOK:
+        print("未配置 FEISHU_WEBHOOK，取消发送")
         return
-    url = f"https://ftqq.com{SERVER_CHAN_KEY}.send"
-    data = {"title": title, "desp": content}
+        
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": title
+                },
+                "template": "orange"
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": markdown_content
+                }
+            ]
+        }
+    }
+    
     try:
-        requests.post(url, data=data)
-        print(f"【已发送确切指令提醒】: {title}")
+        response = requests.post(FEISHU_WEBHOOK, json=payload)
+        print(f"【飞书网关响应】: {response.text}")
     except Exception as e:
-        print(f"发送消息失败: {e}")
+        print(f"发送飞书消息失败: {e}")
 
 def check_drawdown():
     print(f"=== 开始执行美股多策略分级监控 ===")
     alert_triggered = False
 
-    # 🟢 终极黑科技：创建一个伪装成标准浏览器的 Session 头部，强行绕过雅虎财经的反爬虫拦截！
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
 
     for ticker, config in MONITOR_POOL.items():
@@ -58,18 +73,30 @@ def check_drawdown():
         risk_pct = config["risk_pct"]
         
         try:
-            # 将伪装头部注入 yfinance
             stock = yf.Ticker(ticker, session=session)
             df = stock.history(period="60d")
             if df.empty:
-                print(f"[{ticker}] 获取数据为空，跳过")
                 continue
 
+            # 拿到近30个交易日的最高价
             recent_high = df["High"].tail(30).max()
-            current_price = df["Close"].iloc[-1]
+            
+            # 🟢 核心修复：自适应处理非交易时段。如果最新一行是 nan，则自动循环向前捕获有效价格
+            current_price = None
+            for i in range(1, len(df) + 1):
+                price_check = df["Close"].iloc[-i]
+                import math
+                if not math.isnan(price_check):
+                    current_price = price_check
+                    break
+            
+            if current_price is None:
+                print(f"[{ticker}] 无法捕获到任何有效当前价，跳过")
+                continue
+
             drawdown = (recent_high - current_price) / recent_high * 100
 
-            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 当前 ${current_price:.2f} | 真实跌幅: -{drawdown:.2f}%")
+            print(f"[{ticker}] {name}: 30日高点 ${recent_high:.2f} | 最新有效价 ${current_price:.2f} | 真实跌幅: -{drawdown:.2f}%")
 
             if min_drop <= drawdown <= max_drop:
                 alert_triggered = True
@@ -82,18 +109,18 @@ def check_drawdown():
                     
                 title = f"📢【实操买入指令】购买 {name}({ticker}) {exact_shares}股"
                 content = (
-                    f"### 🎯 触发【{min_drop}% ~ {max_drop}%】量化建仓点\n\n"
-                    f"- **股票/基金**: {name} ({ticker})\n"
-                    f"- **实时当前价**: `${current_price:.2f}` (较近期高点回调了 `-{drawdown:.2f}%`)\n\n"
-                    f"--- \n\n"
-                    f"### ⚙️ 确切实操下单指令（请直接去券商App照着买）：\n"
-                    f"1. **操作动作**: `买入 / BUY` 🟢\n"
-                    f"2. **确切股票代码**: `{ticker}`\n"
-                    f"3. **确切买入数量**: **` {exact_shares} ` 股**\n"
-                    f"4. **预计动用资金**: `${actual_spent:.2f}`\n\n"
+                    f"### 🎯 触发【{min_drop}% ~ {max_drop}%】量化建仓点\n"
+                    f"**股票/基金**: {name} ({ticker})\n"
+                    f"**实时当前价**: `${current_price:.2f}` (较近期高点回调了 `-{drawdown:.2f}%`)\n\n"
+                    f"--- \n"
+                    f"### ⚙️ 确切实操下单指令：\n"
+                    f"1. 操作动作: **买入 / BUY** 🟢\n"
+                    f"2. 确切代码: `{ticker}`\n"
+                    f"3. 确切数量: **` {exact_shares} ` 股**\n"
+                    f"4. 预计资金: `${actual_spent:.2f}`\n\n"
                     f"💡 请检查账户中的后备子弹是否充足。"
                 )
-                send_notification(title, content)
+                send_feishu_notification(title, content)
         except Exception as e:
             print(f"获取 {ticker} 实时数据失败: {e}")
 
@@ -102,3 +129,20 @@ def check_drawdown():
 
 if __name__ == "__main__":
     check_drawdown()
+    
+    # 强制飞书实验触发器
+    print("--- 正在触发飞书送达实验 ---")
+    test_title = "📢【实操买入指令】测试：购买 纳指100-ETF(QQQ) 5股"
+    test_content = (
+        f"### 🎯 飞书实验成功！已成功链接云端量化卫士\n"
+        f"**测试标的**: 纳指100-ETF (QQQ)\n"
+        f"**实时模拟价**: `$740.00` (较近期高点回调了 `-5.20%`)\n\n"
+        f"--- \n"
+        f"### ⚙️ 今晚 21:30 开盘手动打底仓指令：\n"
+        f"1. 操作动作: **买入 / BUY** 🟢\n"
+        f"2. 确切代码: `QQQ`\n"
+        f"3. 确切数量: **` 5 ` 股** (抗踏空核心底仓)\n"
+        f"4. 预计资金: `$3,700.00` (基于你的3万美元总预算)\n\n"
+        f"💡 **下一步行动**：收到本条代表飞书通信完全正常。今晚开盘可照此手动打入 VOO 6股和 QQQ 5股底仓，剩下的 75% 资金静待飞书真实的暴跌警报！"
+    )
+    send_feishu_notification(test_title, test_content)
