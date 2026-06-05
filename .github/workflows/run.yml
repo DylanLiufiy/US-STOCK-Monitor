@@ -30,4 +30,4 @@ jobs:
       env:
         # 把我们刚刚存的 Secret 变量传入服务器环境中
         SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
-      run: python monitor.py
+      run: python Monitor.py
