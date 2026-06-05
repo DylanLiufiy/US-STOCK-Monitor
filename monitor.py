@@ -4,7 +4,7 @@ from datetime import datetime
 import requests
 import yfinance as yf
 import math
-
+ 
 # 1. 配置你的总预算（3万美元本金）
 TOTAL_BUDGET = 30000.0
 
