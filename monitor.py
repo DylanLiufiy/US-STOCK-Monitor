@@ -8,6 +8,7 @@ import math
 # ============================================================================
 # ⚙️ 资金与策略池核心配置
 # ============================================================================
+# 账户 1：凯利深水鱼雷仓（总预算 3万美元 现金，不跌透、处于多头主升浪绝对不买）
 TOTAL_KELLY_BUDGET = 30000.0
 KELLY_POOL = {
     "VOO":  {"name": "标普500-ETF", "min": 5.0,  "max": 10.0, "risk_pct": 20.0}, 
@@ -23,6 +24,7 @@ KELLY_POOL = {
     "RKLB": {"name": "Rocket Lab", "min": 15.0, "max": 25.0, "risk_pct": 5.0}   
 }
 
+# 账户 2：增量后续定投仓（每月固定投入 1w 人民币，折合约 1400 美元）
 FIXED_定投_BUDGET = 1400.0
 定投_TICKERS = ["VOO", "QQQ"]
 
@@ -54,9 +56,11 @@ def run_integrated_sentinel():
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
 
     # ------------------------------------------------------------------------
-    # 🏹 轨道一：3万美元 凯利深水鱼雷仓（加入自适应挂单限价计算）
+    # 🏹 轨道一：3万美元 凯利深水鱼雷仓核心逻辑
     # ------------------------------------------------------------------------
     print("\n[正在扫描] 轨道一：3万美元凯利深水鱼雷仓...")
+    alert_triggered = False
+    
     for ticker, config in KELLY_POOL.items():
         name = config["name"]
         min_drop = config["min"]
@@ -90,20 +94,26 @@ def run_integrated_sentinel():
             drawdown = (recent_high - current_price) / recent_high * 100
             print(f"[{ticker}] {name}: 60日高点 ${recent_high:.2f}(距今{days_since_high}天) | 最新价 ${current_price:.2f} | MA20 ${ma20_current:.2f} | 相对回撤: -{drawdown:.2f}%")
 
-            # 牛市创新高与20日多头趋势过滤
-            if days_since_high <= 5 or current_price >= ma20_current:
+            # 🟢 牛市创新高多头趋势防火墙拦截
+            if days_since_high <= 5:
+                print(f"    -> 过滤原因: {name} 最近5天内刚创过历史新高，属于强势主升浪，保持静默。")
+                continue
+                
+            if current_price >= ma20_current:
+                print(f"    -> 过滤原因: {name} 股价仍站在20日均线上方，多头大趋势未破，无需加仓。")
                 continue
 
             if min_drop <= drawdown <= max_drop:
+                alert_triggered = True
                 target_cash_amount = TOTAL_KELLY_BUDGET * (risk_pct / 100.0)
                 exact_shares = int(target_cash_amount // current_price)
                 actual_spent = exact_shares * current_price
                 if exact_shares == 0:
                     continue
                 
-                # 🟢 核心限价算法：算出两档确切的券商限价单挂单建议
-                limit_price_standard = round(current_price * 0.995, 2)  # 下浮 0.5% 作为常规买入安全限价
-                limit_price_extreme = round(current_price * 0.980, 2)   # 下浮 2.0% 作为盘中黄金插针极限价
+                # 算出两档确切的券商限价单挂单建议
+                limit_price_standard = round(current_price * 0.995, 2)
+                limit_price_extreme = round(current_price * 0.980, 2)
                     
                 title = f"📢【凯利狙击指令】购买 {name}({ticker}) {exact_shares}股"
                 body = (
@@ -112,19 +122,21 @@ def run_integrated_sentinel():
                     f"--- \n"
                     f"⚙️ 确切实操挂单指引（请去券商App下 限价单/Limit Order）：\n"
                     f"1. 稳健成交数量: **{exact_shares} 股**\n"
-                    f"2. 💡 常规参考挂单限价: **`${limit_price_standard}`** (安全垫0.5%, 盘中震荡极易成交)\n"
-                    f"3. 🔥 极限防守插针价: **`${limit_price_extreme}`** (深水下浮2%, 捕捉盘中瞬间大暴砸)\n\n"
-                    f"📊 预计占用资金: ${actual_spent:.2f}，请合理安排现金储备！"
+                    f"2. 💡 常规参考挂单限价: **`${limit_price_standard}`** (安全垫0.5%)\n"
+                    f"3. 🔥 极限防守插针价: **`${limit_price_extreme}`** (深水下浮2%)\n\n"
+                    f"📊 预计占用资金: ${actual_spent:.2f}"
                 )
                 send_bark_notification(title, body, group_name="3w凯利深水池")
         except Exception as e:
             print(f"扫描 {ticker} 失败: {e}")
 
+    if not alert_triggered:
+        print("目前盘中没有任何核心资产触及中长线加仓线，系统继续保持静默。")
+
     # ------------------------------------------------------------------------
-    # 📈 轨道二：每月1万人民币 聪明定投仓逻辑（同样注入限价保护机制）
+    # 📈 轨道二：每月1万人民币 聪明定投仓核心逻辑
     # ------------------------------------------------------------------------
     print("\n[正在扫描] 轨道二：每月1万人民币聪明定投仓...")
-    
     if current_month < 7:
         print(f" -> 提示: 当前是 {current_month} 月。按照约定，1w人民币聪明定投逻辑在 7 月 1 日前保持静默。")
         return
@@ -148,14 +160,12 @@ def run_integrated_sentinel():
 
                 fund_budget = FIXED_定投_BUDGET / 2.0
                 exact_shares = int(fund_budget // current_price)
-                
-                # 定投安全挂单限价（同样下浮0.5%防止高位滑点）
                 smart_limit_price = round(current_price * 0.995, 2)
                 
                 name = "标普500-ETF" if ticker == "VOO" else "纳指100-ETF"
                 order_details.append(
                     f"🔍 {name}({ticker}): 现价 ${current_price:.2f}\n"
-                    f"   👉 实操建议：下限价单买入 **{exact_shares}股** | 确切挂单限价: **`${smart_limit_price}`**"
+                    f"   👉 实操建议：上限价单买入 **{exact_shares}股** | 确切挂单限价: **`${smart_limit_price}`**"
                 )
 
                 if bias <= 0.5 or is_force_day:
@@ -167,7 +177,7 @@ def run_integrated_sentinel():
             action_type = "【🚨 月初强制保底定投】" if is_force_day else "【🟢 月初智能定投指令】"
             title = f"{action_type} 执行 {current_month} 月固定定投"
             body = (
-                f"系统已为您捕捉到本月初最佳指数定投切入点！\n\n"
+                f"系统已为您捕捉到本月初最佳指数定投点！\n\n"
                 + "\n\n".join(order_details) + "\n\n"
                 f"⚙️ 操作指引：请现在打开券商App，直接使用上面给出的【确切挂单限价】下限价单。买入后本月定投结束！"
             )
