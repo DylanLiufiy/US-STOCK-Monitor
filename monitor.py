@@ -38,7 +38,7 @@ def send_notification(title, content):
     if not SERVER_CHAN_KEY:
         print("未配置 SERVER_CHAN_KEY，取消发送")
         return
-    url = f"https://ftqq.com{SERVER_CHAN_KEY}.send"
+    url = f"https://sctapi.ftqq.com{SERVER_CHAN_KEY}.send"
     data = {"title": title, "desp": content}
     try:
         requests.post(url, data=data)
