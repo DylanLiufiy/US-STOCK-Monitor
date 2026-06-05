@@ -6,6 +6,7 @@ import yfinance as yf
 
 # 1. 定义监控的“七姐妹”美股代码
 MAG_SEVEN = {
+    # 1. 传统七姐妹
     "AAPL": "苹果",
     "MSFT": "微软",
     "NVDA": "英伟达",
@@ -13,6 +14,17 @@ MAG_SEVEN = {
     "AMZN": "亚马逊",
     "META": "Meta",
     "TSLA": "特斯拉",
+    # 2. 2026 算力/半导体核心巨头
+    "AVGO": "博通",
+    "MU": "美光科技",
+    "ASML": "阿斯麦",
+    "LRCX": "泛林集团",
+    # 3. AI软件与商业化颠覆者
+    "PLTR": "Palantir",
+    "CRM": "Salesforce",
+    # 4. 生物医药与高壁垒硬科技
+    "LLY": "礼来",
+    "RKLB": "Rocket Lab"
 }
 
 # 从 GitHub Secrets 中安全地读取 Key
