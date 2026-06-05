@@ -111,16 +111,3 @@ def check_drawdown():
 
 if __name__ == "__main__":
     check_drawdown()
-    
-    # 测试触发器
-    print("--- 正在触发 Bark 苹果原生送达实验 ---")
-    test_title = "📢【实操买入指令】测试：购买 纳指100-ETF(QQQ) 5股"
-    test_body = (
-        "iPhone Bark 实验成功！云端量化卫士完全打通。\n"
-        "1. 动作: 买入 / BUY 🟢\n"
-        "2. 代码: QQQ\n"
-        "3. 数量: 5 股 (抗踏空底仓)\n"
-        "4. 预计资金: $3,700.00\n\n"
-        "今晚 21:30 开盘请手动在券商买入 VOO 6股和 QQQ 5股底仓，剩下的 75% 后备金静待本系统真实暴跌警报！"
-    )
-    send_bark_notification(test_title, test_body)
