@@ -1,233 +1,185 @@
 import os
 import sys
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 import requests
+import polars as pl
 import yfinance as yf
-import math
 
-# ============================================================================
-# ⚙️ 22大金刚黄金比例板块排他系统（对冲基金级终极完全体）
-# ============================================================================
-TOTAL_KELLY_BUDGET = 30000.0
+# ==============================================================================
+# ❄️ 56只全行业立体对冲【Trade25 专属免佣风控】系统 (V5 终极实盘体)
+# ==============================================================================
 
-# 🟢 概率学重构 1：根据华尔街黄金比例，为 6 大阵营死死锁定【单笔确切买入美元金额】
-# 大盘重仓护盘、AI中重仓主攻、巨头稳健、黑马严格轻仓、医药与传统奶牛均衡对冲
-GROUP_BUDGET_CONFIG = {
-    "INDEX_大盘基金":  {"single_invest_usd": 4500.0},  # 大盘大坑，重兵砸入
-    "AI_算力芯片":    {"single_invest_usd": 2250.0},  # AI算力，主攻冲锋
-    "TECH_巨头生态":  {"single_invest_usd": 2000.0},  # 科技巨头，稳健白马
-    "BLACK_弹性黑马":  {"single_invest_usd": 700.0},   # 高弹黑马，严格轻仓防风控
-    "MED_生物医药":    {"single_invest_usd": 1300.0},  # 医药刚需，反向对冲
-    "CASH_传统奶牛":  {"single_invest_usd": 1500.0}   # 实体奶牛，过路费收割
+BARK_KEY = "请在这里替换成你的Bark_Key"
+LEDGER_FILE = "portfolio_ledger_v5.json"
+INITIAL_BUDGET = 30000.0   
+MAX_DRAWDOWN_LIMIT = 5.0   
+
+# 🔑 Trade25 政策精细参数配置
+TRADE25_MONTHLY_FREE_LIMIT_HKD = 250000.0   # 每月 25 万港币免佣金上限
+USD_TO_HKD_FX_RATE = 7.8                    # 美元兑港币计价固定汇率
+POST_FREE_MIN_COMMISSION_USD = 1.99         # 额度用完后，单笔买卖最低惩罚性佣金
+
+STRATEGY_PORTFOLIO_CONFIG = {
+    "CORE_STABLE": {"name": "安全底座层", "single_invest_usd": 1500.0, "tickers": ["SPY", "QQQ", "NVDA", "AVGO", "MSFT", "LLY", "NVO", "WM", "KO"]},
+    "AGGRESSIVE_GROWTH": {"name": "略微激进层", "single_invest_usd": 1000.0, "tickers": ["GE", "EMR", "ROK", "HON", "RTX", "LMT", "CEG", "VST", "NEE", "COIN", "HOOD", "PYPL"]},
+    "DARK_HORSE": {"name": "强黑马层", "single_black_horse_cap": 450.0, "tickers": ["PLTR", "PATH", "BBAI", "SOUN", "EH", "JOBY", "ACHR", "RKLB", "IONQ", "RGTI", "CRSP", "NTLA", "DNA", "ARWR"]}
 }
 
-MONITOR_POOL = {
-    # 1. 大盘基金阵营 (INDEX)
-    "VOO":  {"name": "标普500-ETF", "group": "INDEX_大盘基金", "risk_factor": 1.0}, 
-    "QQQ":  {"name": "纳指100-ETF", "group": "INDEX_大盘基金", "risk_factor": 1.0}, 
-    # 2. AI算力与核心半导体 (AI_CHIP)
-    "NVDA": {"name": "英伟达",     "group": "AI_算力芯片", "risk_factor": 1.8}, 
-    "AVGO": {"name": "博通",       "group": "AI_算力芯片", "risk_factor": 1.6}, 
-    # 3. 科技巨头闭环生态 (TECH_GIANT)
-    "MSFT": {"name": "微软",       "group": "TECH_巨头生态", "risk_factor": 1.2}, 
-    "AAPL": {"name": "苹果",       "group": "TECH_巨头生态", "risk_factor": 1.2},
-    "GOOG": {"name": "谷歌-C",     "group": "TECH_巨头生态", "risk_factor": 1.3}, 
-    "AMZN": {"name": "亚马逊",     "group": "TECH_巨头生态", "risk_factor": 1.4}, 
-    "META": {"name": "Meta",       "group": "TECH_巨头生态", "risk_factor": 1.4}, 
-    # 4. 高弹性黑马爆发卫星仓 (BLACK_HORSE)
-    "TSLA": {"name": "特斯拉",     "group": "BLACK_弹性黑马", "risk_factor": 2.2},  
-    "PLTR": {"name": "Palantir",   "group": "BLACK_弹性黑马", "risk_factor": 2.2},  
-    "RKLB": {"name": "Rocket Lab", "group": "BLACK_弹性黑马", "risk_factor": 2.5},   
-    # 5. 生物医药与医保垄断 (MEDICINE)
-    "LLY":  {"name": "礼来",       "group": "MED_生物医药", "risk_factor": 1.4},  
-    "NVO":  {"name": "诺和诺德",   "group": "MED_生物医药", "risk_factor": 1.4},
-    "UNH":  {"name": "联合健康",   "group": "MED_生物医药", "risk_factor": 1.2},
-    # 6. 线下传统消费、金融与数字收费公路 (CASH_COW)
-    "COST": {"name": "Costco",     "group": "CASH_传统奶牛", "risk_factor": 1.1},  
-    "WMT":  {"name": "沃尔玛",     "group": "CASH_传统奶牛", "risk_factor": 1.1},
-    "V":    {"name": "Visa",       "group": "CASH_传统奶牛", "risk_factor": 1.2},
-    "MA":   {"name": "万事达",     "group": "CASH_传统奶牛", "risk_factor": 1.2},
-    "JPM":  {"name": "摩根大通",   "group": "CASH_传统奶牛", "risk_factor": 1.2},
-    "CRM":  {"name": "Salesforce", "group": "CASH_传统奶牛", "risk_factor": 1.5},  
-    "GE":   {"name": "通用电气",   "group": "CASH_传统奶牛", "risk_factor": 1.2}
-}
+HEDGE_INSTRUMENT = "SQQQ"   
+ALL_TICKERS = [t for layer in STRATEGY_PORTFOLIO_CONFIG.values() for t in layer["tickers"]] + [HEDGE_INSTRUMENT, "SPY"]
+ALL_TICKERS = list(set(ALL_TICKERS))
 
-FIXED_定投_BUDGET = 1400.0
-定投_TICKERS = ["VOO", "QQQ"]
 
-BARK_URL = os.environ.get("BARK_URL")
+def load_ledger_v5():
+    """初始化V5账本，新增记录Trade25月度额度消耗和上一次重置月份"""
+    if os.path.exists(LEDGER_FILE):
+        with open(LEDGER_FILE, 'r', encoding='utf-8') as f:
+            ledger = json.load(f)
+            # 自动跨月重置机制：如果进入了新的一月，自动将已用免费额度清零重置
+            current_month = datetime.now().strftime("%Y-%m")
+            if ledger.get("last_reset_month", "") != current_month:
+                ledger["trade25_used_hkd"] = 0.0
+                ledger["last_reset_month"] = current_month
+                print(f"📅 检测到进入新月份 {current_month}，系统已自动重置 Trade25 25万港币免佣额度！")
+            return ledger
+            
+    return {
+        "cash": INITIAL_BUDGET, 
+        "holdings": {}, 
+        "history_trades": [], 
+        "daily_net_worth_history": [], 
+        "spy_benchmark_shares": None,
+        "circuit_breaker_active": False, 
+        "spy_above_sma20_days": 0, 
+        "pushed_news_ids": [],
+        "trade25_used_hkd": 0.0,                    # 📊 本月已经消耗掉的港币免佣交易额
+        "last_reset_month": datetime.now().strftime("%Y-%m")
+    }
 
-def send_bark_notification(title, body, group_name="美股核心量化"):
-    if not BARK_URL:
-        print(f"未配置 BARK_URL，取消发送")
-        return
-    base_url = BARK_URL if BARK_URL.endswith("/") else BARK_URL + "/"
-    encoded_title = requests.utils.quote(title)
-    encoded_body = requests.utils.quote(body)
-    url = f"{base_url}{encoded_title}/{encoded_body}"
-    params = {"sound": "calypso", "group": group_name}
-    try:
-        requests.get(url, params=params)
-        print(f"【Bark 高级网关】: 黄金比例自适应信号推送成功。")
-    except Exception as e:
-        print(f"发送 Bark 消息失败: {e}")
+def save_ledger_v5(ledger):
+    with open(LEDGER_FILE, 'w', encoding='utf-8') as f: json.dump(ledger, f, indent=4, ensure_ascii=False)
 
-def run_integrated_sentinel():
-    current_date = datetime.now()
-    current_month = current_date.month
-    current_day = current_date.day
+
+def execute_order_and_log_v5(ticker, action_type, price, amount_usd, ledger):
+    """
+    【核心重构优化点】：严格核算每笔交易带来的 Trade25 港币额度损耗。
+    一旦下周一开启运行，只要额度没有超过 25 万，单笔执行手续费死死卡为 0 元。
+    """
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    print(f"=== 运行22大金刚黄金比例行业排他网格系统 ({current_date.strftime('%Y-%m-%d %H:%M:%S')}) ===")
-    
-    session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+    # 1. 基础熔断拦截
+    if action_type == "BUY" and ledger.get("circuit_breaker_active", False):
+        print(f"🔒 熔断锁拦截：当前系统处于防御期，谢绝买入 {ticker}。")
+        return False
 
-    # 追踪当前扫描周期内，有哪些行业已经触发并被排他锁死
-    triggered_groups = set()
-    alert_triggered = False
+    # 2. 计算此笔交易需要消耗的港币额度 (交易本金转换)
+    trade_value_hkd = amount_usd * USD_TO_HKD_FX_RATE
     
-    print("\n[实时扫描] 轨道一：3万美元22金刚黄金比例网格机制...")
-    for ticker, config in MONITOR_POOL.items():
-        name = config["name"]
-        group_id = config["group"]
-        risk_factor = config["risk_factor"]
+    # 3. 判定此笔买卖是否仍处在 Trade25 的 25万免佣金金牌护身符下
+    is_free_trade = (ledger["trade25_used_hkd"] + trade_value_hkd) <= TRADE25_MONTHLY_FREE_LIMIT_HKD
+    
+    # 计算本笔交易的手续费摩擦成本
+    commission_cost_usd = 0.0 if is_free_trade else POST_FREE_MIN_COMMISSION_USD
+    
+    if action_type == "BUY":
+        # 扣除购买本金 + 可能存在的惩罚性佣金
+        total_buy_cost = amount_usd + commission_cost_usd
+        if ledger["cash"] < total_buy_cost:
+            print(f"❌ 现金池余额不足以支付 {ticker} 本金加佣金共 ${total_buy_cost:.2f}，拦截交易。")
+            return False
+            
+        shares_to_buy = round(amount_usd / price, 4)
+        ledger["cash"] -= total_buy_cost
         
-        # 行业板块隔离排他锁死检查
-        if group_id in triggered_groups:
-            print(f"[{ticker}] {name}: -> 拦截原因: 该阵营【{group_id}】今日已发出购买指令，触发熔断排他机制，自动忽略本行。")
-            continue
+        # 更新持仓
+        if ticker in ledger["holdings"]:
+            old_s = ledger["holdings"][ticker]["shares"]
+            old_c = ledger["holdings"][ticker]["entry_price"]
+            new_s = old_s + shares_to_buy
+            new_c = ((old_s * old_c) + total_buy_cost) / new_s # 手续费平摊入持仓成本中
+            ledger["holdings"][ticker] = {"shares": round(new_s, 4), "entry_price": round(new_c, 2)}
+        else:
+            ledger["holdings"][ticker] = {"shares": shares_to_buy, "entry_price": round(total_buy_cost / shares_to_buy, 2)}
             
-        try:
-            stock = yf.Ticker(ticker, session=session)
-            df = stock.history(period="60d")
-            if df.empty or len(df) < 25:
-                continue
+        # 实时扣减累加本月已消耗的 Trade25 免费港币额度
+        ledger["trade25_used_hkd"] += trade_value_hkd
+        
+        ledger["history_trades"].append({
+            "date": now_str, "ticker": ticker, "type": "BUY", "shares": shares_to_buy, "price": price, 
+            "commission_paid_usd": commission_cost_usd, "hkd_quota_consumed": round(trade_value_hkd, 2)
+        })
+        print(f"🛒 成功建仓 {ticker}：本笔消耗免费额度 {trade_value_hkd:.1f} HKD，实际支付手续费: ${commission_cost_usd}")
+        return True
+        
+    elif action_type == "SELL" and ticker in ledger["holdings"]:
+        holding_info = ledger["holdings"].pop(ticker)
+        gross_return_cash = holding_info["shares"] * price
+        
+        # 卖出回笼资金时也要扣除可能存在的佣金
+        net_returned_cash = gross_return_cash - commission_cost_usd
+        ledger["cash"] += net_returned_cash
+        
+        ledger["trade25_used_hkd"] += (gross_return_cash * USD_TO_HKD_FX_RATE)
+        pnl = net_returned_cash - (holding_info["entry_price"] * holding_info["shares"])
+        
+        ledger["history_trades"].append({
+            "date": now_str, "ticker": ticker, "type": "SELL", "shares": holding_info["shares"], "price": price,
+            "commission_paid_usd": commission_cost_usd, "pnl": round(pnl, 2)
+        })
+        print(f"💰 成功平仓 {ticker}：实际到账金额: ${net_returned_cash:.2f}，手续费: ${commission_cost_usd}")
+        return True
+        
+    return False
 
-            df['MA20'] = df['Close'].rolling(window=20).mean()
-            ma20_current = df['MA20'].iloc[-1]
 
-            recent_high = df["High"].tail(60).max()
-            high_index = df["High"].tail(60).idxmax()
-            days_since_high = len(df) - df.index.get_loc(high_index) - 1
-
-            current_price = stock.fast_info.get('lastPrice') or df["Close"].iloc[-1]
-            drawdown = (recent_high - current_price) / recent_high * 100
-
-            # 贝叶斯波动率动态自适应调校
-            df['High_Low'] = df['High'] - df['Low']
-            df['ATR20'] = df['High_Low'].rolling(window=20).mean()
-            atr_current = df['ATR20'].iloc[-1]
-            volatility_pct = (atr_current / current_price) * 100
-            
-            smart_trigger_line = max(5.0, volatility_pct * risk_factor)
-            print(f"[{ticker}] {name}: 60日高点 ${recent_high:.2f} | 现价 ${current_price:.2f} | 真实回撤: -{drawdown:.2f}% (自适应买入线: {smart_trigger_line:.2f}%)")
-
-            if days_since_high <= 4:
-                continue
-
-            is_triggered = False
-            strategy_type = ""
-            
-            # 【双档自动提盈收割引擎】
-            if current_price >= ma20_current and (smart_trigger_line * 0.7) <= drawdown < smart_trigger_line:
-                is_triggered = True
-                strategy_type = "【🟢 趋势局部低吸】"
-                
-            elif current_price < ma20_current and drawdown >= smart_trigger_line:
-                is_triggered = True
-                strategy_type = "【🚨 深水长线抄底】"
-
-            if is_triggered:
-                alert_triggered = True
-                # 🟢 板块熔断锁死生效
-                triggered_groups.add(group_id)
-                
-                # 🟢 核心概率升级：自动提取当前阵营专属的科学黄金比例单笔买入美元金额
-                invest_usd = GROUP_BUDGET_CONFIG[group_id]["single_invest_usd"]
-                
-                # 阶梯幂律放大因子：如果是大跌抄底档，允许资金自动放大1.2倍增强底部胜率
-                if strategy_type == "【🚨 深水长线抄底】":
-                    invest_usd = min(invest_usd * 1.3, invest_usd * (drawdown / smart_trigger_line))
-                
-                exact_shares = int(invest_usd // current_price)
-                actual_spent = exact_shares * current_price
-                if exact_shares == 0:
-                    continue
-                
-                limit_price_standard = round(current_price * 0.996, 2)
-                limit_price_extreme = round(current_price * 0.982, 2)
-                
-                title = f"📢{strategy_type} 购买 {name}({ticker}) {exact_shares}股"
-                body = (
-                    f"🎯 黄金比例行业排他策略成功捕获优质买点！\n"
-                    f"所属阵营: 【{group_id}】(该阵营子弹已用完，系统已限时锁死防御)\n"
-                    f"当前市价: ${current_price:.2f} (回撤 -{drawdown:.2f}%)\n\n"
-                    f"--- \n"
-                    f"⚙️ 确切实操挂单指引（限价单/Limit Order）：\n"
-                    f"1. 建议成交数量: **{exact_shares} 股**\n"
-                    f"2. 💡 常规买入参考限价: **`${limit_price_standard}`**\n"
-                    f"3. 🔥 极限插针低吸价: **`${limit_price_extreme}`**\n\n"
-                    f"📊 阵营科学预算调用: ${actual_spent:.2f}，资金流动性由底层自动过桥结算！"
-                )
-                send_bark_notification(title, body, group_name="3w黄金比例池")
-                
-        except Exception as e:
-            print(f"扫描 {ticker} 失败: {e}")
-
-    if not alert_triggered:
-        print("目前盘中没有任何资产满足自适应网格买点，系统继续静默巡逻。")
-
-    # ------------------------------------------------------------------------
-    # 📈 轨道二：每月1万人民币 聪明定投仓核心逻辑
-    # ------------------------------------------------------------------------
-    print("\n[实时扫描] 轨道二：每月1万人民币聪明定投仓...")
-    if current_month < 7:
-        print(f" -> 提示: 当前是 {current_month} 月。按照约定，1w人民币聪明定投逻辑在 7 月 1 日前保持静默。")
+def run_survivor_v5_pipeline():
+    """主控运行：盘点营收并生成带有 Trade25 额度监控的早报发往 Bark"""
+    ledger = load_ledger_v5()
+    now_str = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        market_data = yf.download(ALL_TICKERS, period="60d", group_by='ticker', threads=True, progress=False)
+    except Exception as e:
+        print(f"拉取失败: {e}")
         return
 
-    if 1 <= current_day <= 7:
-        should_buy_fixed_today = False
-        is_force_day = (current_day >= 7)
-        order_details = []
+    # 1. 计算总市值
+    current_stock_value = 0.0
+    for ticker, info in ledger["holdings"].items():
+        try: current_stock_value += info["shares"] * float(market_data.get(ticker)['Close'].iloc[-1])
+        except: current_stock_value += info["shares"] * info["entry_price"]
+        
+    total_net_worth = ledger["cash"] + current_stock_value
+    
+    # 2. 统计 Trade25 的可用额度剩余
+    remaining_free_hkd = max(0.0, TRADE25_MONTHLY_FREE_LIMIT_HKD - ledger["trade25_used_hkd"])
+    free_quota_pct = (remaining_free_hkd / TRADE25_MONTHLY_FREE_LIMIT_HKD) * 100
+    
+    # 3. 组装资产报告文本
+    report_title = "🛡️ 寿星 V5 策略盘点 (Trade25 额度护航)"
+    report_body = f"### 📊 账户生存与 Trade25 额度盘点 ({now_str})\n\n"
+    report_body += f"* **目前总资产净值 (NAV)**: `${total_net_worth:,.2f}`\n"
+    report_body += f"* **可用风控流动现金池**: `${ledger['cash']:,.2f}`\n"
+    report_body += f"  └── *当前持仓标的汇总*: `{list(ledger['holdings'].keys()) if ledger['holdings'] else '全部安全空仓'}`\n\n"
+    
+    report_body += "#### 🎫 Trade25 免佣额度追踪看板\n"
+    report_body += f"* **本月已用免佣金交易量**: `{ledger['trade25_used_hkd']:,.2f} HKD`\n"
+    report_body += f"* **剩余完全免佣港币额度**: `{remaining_free_hkd:,.2f} HKD` (占比: `{free_quota_pct:.1f}%`)\n"
+    
+    if remaining_free_hkd > 0:
+        report_body += "  └── 🎉 *状态：下周一买卖将保持【100%完全免佣金】丝滑模式运行！*\n"
+    else:
+        report_body += f"  └── ⚠️ *警告：本月免佣金额度已耗尽！后续单笔买卖将每笔严格计入 ${POST_FREE_MIN_COMMISSION_USD} 最低手续费摩擦！*\n"
+        
+    report_body += f"\n*💡 提示：跨月系统会自动清零并重新赋予 25 万 HKD 额度。数据已安全持久化写入本地盘。*"
 
-        for ticker in 定投_TICKERS:
-            try:
-                stock = yf.Ticker(ticker, session=session)
-                df = stock.history(period="30d")
-                if df.empty or len(df) < 20:
-                    continue
+    save_ledger_v4(ledger) # 保存账本状态
+    
+    if BARK_KEY != "请在这里替换成你的Bark_Key":
+        requests.post(f"https://day.app{BARK_KEY}", data={"title": report_title, "body": report_body, "group": "Trade25量化流", "isArchive": 1}, timeout=10)
+    print(report_body)
 
-                df['MA20'] = df['Close'].rolling(window=20).mean()
-                ma20 = df['MA20'].iloc[-1]
-                current_price = stock.fast_info.get('lastPrice') or df["Close"].iloc[-1]
-                bias = (current_price - ma20) / ma20 * 100
-
-                fund_budget = FIXED_定投_BUDGET / 2.0
-                exact_shares = int(fund_budget // current_price)
-                smart_limit_price = round(current_price * 0.995, 2)
-                
-                name = "标普500-ETF" if ticker == "VOO" else "纳指100-ETF"
-                order_details.append(
-                    f"🔍 {name}({ticker}): 现价 ${current_price:.2f}\n"
-                    f"   👉 实操建议：下限价单买入 **{exact_shares}股** | 确切挂单限价: **`${smart_limit_price}`**"
-                )
-
-                if bias <= 0.5 or is_force_day:
-                    should_buy_fixed_today = True
-            except Exception as e:
-                print(f"计算定投 {ticker} 出错: {e}")
-
-        if should_buy_fixed_today:
-            action_type = "【🚨 月初强制保底定投】" if is_force_day else "【🟢 月初智能定投指令】"
-            title = f"{action_type} 执行 {current_month} 月固定定投"
-            body = (
-                f"系统已为您捕捉到本月初最佳指数定投点！\n\n"
-                + "\n\n".join(order_details) + "\n\n"
-                f"⚙️ 操作指引：请现在打开券商App，直接使用上面给出的【确切挂单限价】下限价单。买入后本月定投结束！"
-            )
-            send_bark_notification(title, body, group_name="1w增量定投池")
-        else:
-            print(f" -> 提示: 今天（{current_day}号）大盘短线处于多头过热主升浪，未触及MA20均线回踩。定投继续保持静默。")
 
 if __name__ == "__main__":
-    run_integrated_sentinel()
+    run_survivor_v5_pipeline()
