@@ -41,7 +41,8 @@ jobs:
         BARK_URL: ${{ secrets.BARK_URL }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
-        python survivor_v5_simulated.py
+        # 💡【已全面对齐】：直接无缝执行你仓库里的核心脚本 monitor.py
+        python monitor.py
 
     - name: 5. 自动同步并持久化本地记账资产 (Git Auto-Commit)
       if: always()
