@@ -4,11 +4,10 @@ on:
   push:
     branches: [ main ]
   schedule:
-    # 🟢 第一段：北京时间 20:30 - 23:00 (盘前与开盘前半段，每 20 分钟疯狂洗刷提示，把握黄金出手时机)
+    # 🟢 第一段：北京时间 20:30 - 23:00 (盘前与开盘前半段，每 20 分钟高频提示)
     - cron: '0,20,40 12-14 * * 1-5'
     
-    # 💤 第二段：北京时间 23:00 - 次日凌晨 05:00 (深夜睡觉时间，自动降频为每 1 小时只巡逻一次)
-    # 期间系统依然在云端全自动死守 5% 熔断线，自动买入 SQQQ 护盘，但不再高频用常规新闻轰炸你
+    # 💤 第二段：北京时间 23:00 - 次日凌晨 05:00 (深夜睡觉时间，自动降频为每 1 小时巡逻一次)
     - cron: '0 15-21 * * 1-5'
 
 jobs:
@@ -27,7 +26,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip' # 💡 开启依赖缓存，将每次运行的拉取时间缩短 70%
+        # 💡 【已修复】：彻底移除了引发报错的 cache 选项，直接进行无缝的环境创建
 
     - name: 3. 并行安装 Polars 向量引擎及金融总线依赖
       run: |
@@ -36,16 +35,14 @@ jobs:
 
     - name: 4. 执行多行业流式清洗并流转 Trade25 账本
       env:
-        # 🟢 安全穿透：将你在 GitHub Settings -> Secrets 里配置的密钥安全注入代码环境
+        # 🟢 安全穿透全局 Secrets
         BARK_URL: ${{ secrets.BARK_URL }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
-        # 启动 V5 生产环境主控制流
         python survivor_v5_simulated.py
 
     - name: 5. 自动同步并持久化本地记账资产 (Git Auto-Commit)
-      # 🛡️ 存活玩家核心：自动将本轮交易消耗的 Trade25 额度及持仓盈亏 JSON 结果自动推回你的 GitHub 仓库
-      if: always() # 确保即使策略中途报错，账本也必须完整保存归档
+      if: always() # 确保即使策略中途网络抖动，账本也必须完整保存归档
       run: |
         git config --local user.email "actions@github.com"
         git config --local user.name "GitHub Action Bot"
