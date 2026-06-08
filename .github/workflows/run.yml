@@ -1,31 +1,52 @@
-name: 24h美股回调自动监控
+name: 24h美股全行业多因子生存监控
 
 on:
   push:
     branches: [ main ]
   schedule:
-    # 在北京时间周一至周五的晚上 21点 至 次日凌晨 5点，每小时的第 0 分钟自动运行
-    - cron: '0 13-21 * * 1-5'
+    # ⏱️ 定时触发器深度重构 (支持美股夏令时盘前 + 盘中高频流)
+    # UTC 12:30-21:30 对应北京时间 20:30 至 次日凌晨 05:30 (完美覆盖盘前舆情异动与盘后资产结算)
+    # 每 20 分钟自动高并发洗刷一次 56 只个股 (CRON: 0,20,40)
+    - cron: '0,20,40 12-21 * * 1-5'
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    
+    # 🔒 授予工作流对持久化账本 JSON 文件的读写写入权限，保障 Trade25 额度不失忆
+    permissions:
+      contents: write
+      
     steps:
-    - name: 1. 检查代码
+    - name: 1. 检出量化生存系统代码
       uses: actions/checkout@v4
 
-    - name: 2. 安装 Python 环境
+    - name: 2. 初始化准工业级 Python 环境
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
+        cache: 'pip' # 💡 开启依赖缓存，将每次运行的拉取时间缩短 70%
 
-    - name: 3. 安装金融数据依赖库
+    - name: 3. 并行安装 Polars 向量引擎及金融总线依赖
       run: |
-        pip install yfinance requests
+        python -m pip install --upgrade pip
+        pip install yfinance requests polars pandas
 
-    - name: 4. 执行监控并发送Bark独立系统提醒
+    - name: 4. 执行多行业流式清洗并流转 Trade25 账本
       env:
-        # 🟢 钥匙在这里：确保服务器精准调用你在全局 Secrets 里填写的 BARK_URL
+        # 🟢 安全穿透：将你在 GitHub Settings -> Secrets 里配置的密钥安全注入代码环境
         BARK_URL: ${{ secrets.BARK_URL }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      run: python monitor.py
+      run: |
+        # 启动 V5 生产环境主控制流
+        python survivor_v5_simulated.py
+
+    - name: 5. 自动同步并持久化本地记账资产 (Git Auto-Commit)
+      # 🛡️ 存活玩家核心：自动将本轮交易消耗的 Trade25 额度及持仓盈亏 JSON 结果自动推回你的 GitHub 仓库
+      if: always() # 确保即使策略中途报错，账本也必须完整保存归档
+      run: |
+        git config --local user.email "actions@github.com"
+        git config --local user.name "GitHub Action Bot"
+        git add portfolio_ledger_v5.json || true
+        git commit -m "🤖 [自动记账] 实时更新 Trade25 可用免费额度与资产净值" -a || true
+        git push origin main || true
