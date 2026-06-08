@@ -4,17 +4,21 @@ on:
   push:
     branches: [ main ]
   schedule:
-    # 🟢 第一段：北京时间 20:30 - 23:00 (盘前与开盘前半段，每 20 分钟高频提示)
-    - cron: '0,20,40 12-14 * * 1-5'
+    # 🟢 第一段：北京时间 08:00 - 21:00 (白天实时信息流，每 20 分钟高频洗刷并即时推送)
+    # 对应 UTC: 00:00 - 13:00 期间的 0, 20, 40 分运行
+    - cron: '0,20,40 0-12 * * 1-5'
     
-    # 💤 第二段：北京时间 23:00 - 次日凌晨 05:00 (深夜睡觉时间，自动降频为每 1 小时巡逻一次)
+    # 💤 第二段：北京时间 21:00 - 23:00 (夜间开盘前段，21点、22点执行精准定点夜间推送)
+    # 对应 UTC: 13:00 - 15:00 期间的第 0 分钟运行
+    - cron: '0 13,14 * * 1-5'
+    
+    # 🌙 第三段：北京时间 23:00 - 次日凌晨 05:00 (深夜睡觉托管，自动降低为每小时巡逻一次)
+    # 对应 UTC: 15:00 - 21:00 期间的第 0 分钟运行。
     - cron: '0 15-21 * * 1-5'
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    
-    # 🔒 授予工作流对持久化账本 JSON 文件的读写写入权限，保障 Trade25 额度不失忆
     permissions:
       contents: write
       
@@ -34,15 +38,13 @@ jobs:
 
     - name: 4. 执行多行业流式清洗并流转 Trade25 账本
       env:
-        # 🟢 安全穿透全局 Secrets
         BARK_URL: ${{ secrets.BARK_URL }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
-        # 💡【已对齐】：如果你的脚本叫 monitor.py，这里就会无缝执行它
-        python monitor.py
+        python survivor_v5_simulated.py
 
     - name: 5. 自动同步并持久化本地记账资产 (Git Auto-Commit)
-      if: always() # 确保即使策略中途网络抖动，账本也必须完整保存归档
+      if: always()
       run: |
         git config --local user.email "actions@github.com"
         git config --local user.name "GitHub Action Bot"
