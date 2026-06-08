@@ -25,5 +25,6 @@ jobs:
 
     - name: Run News Monitor Script
       env:
+        # ⚠️ 检查这一步！必须有这两行，才能把保险箱里的密钥真正喂给 Python 脚本
         BARK_KEY: ${{ secrets.BARK_KEY }}
-      run: python news_monitor.py
+      run: python monitor.py
