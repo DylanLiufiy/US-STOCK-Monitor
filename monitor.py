@@ -2,149 +2,183 @@ import os
 import sys
 import json
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import polars as pl
 import yfinance as yf
 
 # ==============================================================================
-# ❄️ 56只全行业立体对冲【Trade25 专属免佣风控】系统 (V5 终极实盘体)
+# ❄️ 56只全行业立体对冲【GitHub Actions 云端专用】生存系统 (V5 最终生产体)
 # ==============================================================================
 
-BARK_KEY = "请在这里替换成你的Bark_Key"
+# 🔑 【安全升级】：彻底移除明文 Key，直接安全读取你在 GitHub 全局 Secrets 里填写的 BARK_URL
+BARK_KEY = os.environ.get("BARK_URL", "请在GitHub_Secrets中配置BARK_URL")
+
 LEDGER_FILE = "portfolio_ledger_v5.json"
 INITIAL_BUDGET = 30000.0   
 MAX_DRAWDOWN_LIMIT = 5.0   
 
-# 🔑 Trade25 政策精细参数配置
+# Trade25 专属政策参数
 TRADE25_MONTHLY_FREE_LIMIT_HKD = 250000.0   # 每月 25 万港币免佣金上限
-USD_TO_HKD_FX_RATE = 7.8                    # 美元兑港币计价固定汇率
+USD_TO_HKD_FX_RATE = 7.8                    # 美元兑港币固定汇率
 POST_FREE_MIN_COMMISSION_USD = 1.99         # 额度用完后，单笔买卖最低惩罚性佣金
 
+# 56只全行业标的多因子分类矩阵
 STRATEGY_PORTFOLIO_CONFIG = {
-    "CORE_STABLE": {"name": "安全底座层", "single_invest_usd": 1500.0, "tickers": ["SPY", "QQQ", "NVDA", "AVGO", "MSFT", "LLY", "NVO", "WM", "KO"]},
-    "AGGRESSIVE_GROWTH": {"name": "略微激进层", "single_invest_usd": 1000.0, "tickers": ["GE", "EMR", "ROK", "HON", "RTX", "LMT", "CEG", "VST", "NEE", "COIN", "HOOD", "PYPL"]},
-    "DARK_HORSE": {"name": "强黑马层", "single_black_horse_cap": 450.0, "tickers": ["PLTR", "PATH", "BBAI", "SOUN", "EH", "JOBY", "ACHR", "RKLB", "IONQ", "RGTI", "CRSP", "NTLA", "DNA", "ARWR"]}
+    "CORE_STABLE": {
+        "name": "安全底座层", "single_invest_usd": 1500.0, 
+        "tickers": ["SPY", "QQQ", "NVDA", "AVGO", "MSFT", "LLY", "NVO", "WM", "KO"]
+    },
+    "AGGRESSIVE_GROWTH": {
+        "name": "略微激进层", "single_invest_usd": 1000.0, 
+        "tickers": ["GE", "EMR", "ROK", "HON", "RTX", "LMT", "CEG", "VST", "NEE", "COIN", "HOOD", "PYPL"]
+    },
+    "DARK_HORSE": {
+        "name": "强黑马层", "single_black_horse_cap": 450.0, 
+        "tickers": ["PLTR", "PATH", "BBAI", "SOUN", "EH", "JOBY", "ACHR", "RKLB", "IONQ", "RGTI", "CRSP", "NTLA", "DNA", "ARWR"]
+    }
 }
 
-HEDGE_INSTRUMENT = "SQQQ"   
+HEDGE_INSTRUMENT = "SQQQ"   # 🛡️ 尾部反向对冲基金
 ALL_TICKERS = [t for layer in STRATEGY_PORTFOLIO_CONFIG.values() for t in layer["tickers"]] + [HEDGE_INSTRUMENT, "SPY"]
 ALL_TICKERS = list(set(ALL_TICKERS))
 
 
 def load_ledger_v5():
-    """初始化V5账本，新增记录Trade25月度额度消耗和上一次重置月份"""
+    """读取账本，自动执行跨月额度重置"""
     if os.path.exists(LEDGER_FILE):
         with open(LEDGER_FILE, 'r', encoding='utf-8') as f:
             ledger = json.load(f)
-            # 自动跨月重置机制：如果进入了新的一月，自动将已用免费额度清零重置
             current_month = datetime.now().strftime("%Y-%m")
             if ledger.get("last_reset_month", "") != current_month:
                 ledger["trade25_used_hkd"] = 0.0
                 ledger["last_reset_month"] = current_month
-                print(f"📅 检测到进入新月份 {current_month}，系统已自动重置 Trade25 25万港币免佣额度！")
+                print(f"📅 监测到新月份 {current_month}，系统自动重置 Trade25 免佣额度。")
             return ledger
-            
     return {
-        "cash": INITIAL_BUDGET, 
-        "holdings": {}, 
-        "history_trades": [], 
-        "daily_net_worth_history": [], 
-        "spy_benchmark_shares": None,
-        "circuit_breaker_active": False, 
-        "spy_above_sma20_days": 0, 
-        "pushed_news_ids": [],
-        "trade25_used_hkd": 0.0,                    # 📊 本月已经消耗掉的港币免佣交易额
-        "last_reset_month": datetime.now().strftime("%Y-%m")
+        "cash": INITIAL_BUDGET, "holdings": {}, "history_trades": [], "daily_net_worth_history": [], 
+        "spy_benchmark_shares": None, "circuit_breaker_active": False, "spy_above_sma20_days": 0, 
+        "pushed_news_ids": [], "trade25_used_hkd": 0.0, "last_reset_month": datetime.now().strftime("%Y-%m")
     }
 
 def save_ledger_v5(ledger):
-    with open(LEDGER_FILE, 'w', encoding='utf-8') as f: json.dump(ledger, f, indent=4, ensure_ascii=False)
+    with open(LEDGER_FILE, 'w', encoding='utf-8') as f:
+        json.dump(ledger, f, indent=4, ensure_ascii=False)
 
 
-def execute_order_and_log_v5(ticker, action_type, price, amount_usd, ledger):
-    """
-    【核心重构优化点】：严格核算每笔交易带来的 Trade25 港币额度损耗。
-    一旦下周一开启运行，只要额度没有超过 25 万，单笔执行手续费死死卡为 0 元。
-    """
-    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # 1. 基础熔断拦截
-    if action_type == "BUY" and ledger.get("circuit_breaker_active", False):
-        print(f"🔒 熔断锁拦截：当前系统处于防御期，谢绝买入 {ticker}。")
-        return False
-
-    # 2. 计算此笔交易需要消耗的港币额度 (交易本金转换)
-    trade_value_hkd = amount_usd * USD_TO_HKD_FX_RATE
-    
-    # 3. 判定此笔买卖是否仍处在 Trade25 的 25万免佣金金牌护身符下
-    is_free_trade = (ledger["trade25_used_hkd"] + trade_value_hkd) <= TRADE25_MONTHLY_FREE_LIMIT_HKD
-    
-    # 计算本笔交易的手续费摩擦成本
-    commission_cost_usd = 0.0 if is_free_trade else POST_FREE_MIN_COMMISSION_USD
-    
-    if action_type == "BUY":
-        # 扣除购买本金 + 可能存在的惩罚性佣金
-        total_buy_cost = amount_usd + commission_cost_usd
-        if ledger["cash"] < total_buy_cost:
-            print(f"❌ 现金池余额不足以支付 {ticker} 本金加佣金共 ${total_buy_cost:.2f}，拦截交易。")
-            return False
-            
-        shares_to_buy = round(amount_usd / price, 4)
-        ledger["cash"] -= total_buy_cost
-        
-        # 更新持仓
-        if ticker in ledger["holdings"]:
-            old_s = ledger["holdings"][ticker]["shares"]
-            old_c = ledger["holdings"][ticker]["entry_price"]
-            new_s = old_s + shares_to_buy
-            new_c = ((old_s * old_c) + total_buy_cost) / new_s # 手续费平摊入持仓成本中
-            ledger["holdings"][ticker] = {"shares": round(new_s, 4), "entry_price": round(new_c, 2)}
+def check_spy_health_via_polars(market_data, ledger):
+    """【Polars 向量加速引擎】：多线程底层解算大盘 SMA20，彻底告别单线程阻塞"""
+    try:
+        if "SPY" in market_data and not market_data["SPY"].empty:
+            spy_pd = market_data["SPY"]
         else:
-            ledger["holdings"][ticker] = {"shares": shares_to_buy, "entry_price": round(total_buy_cost / shares_to_buy, 2)}
+            spy_pd = yf.download("SPY", period="60d", progress=False)
             
-        # 实时扣减累加本月已消耗的 Trade25 免费港币额度
-        ledger["trade25_used_hkd"] += trade_value_hkd
+        spy_prices = spy_pd['Close'].dropna().tolist()
+        pl_df = pl.DataFrame({"close": spy_prices})
+        pl_df = pl_df.with_columns(pl.col("close").rolling_mean(window=20).alias("sma20"))
         
-        ledger["history_trades"].append({
-            "date": now_str, "ticker": ticker, "type": "BUY", "shares": shares_to_buy, "price": price, 
-            "commission_paid_usd": commission_cost_usd, "hkd_quota_consumed": round(trade_value_hkd, 2)
-        })
-        print(f"🛒 成功建仓 {ticker}：本笔消耗免费额度 {trade_value_hkd:.1f} HKD，实际支付手续费: ${commission_cost_usd}")
-        return True
+        spy_current = pl_df["close"][-1]
+        spy_sma20 = pl_df["sma20"][-1]
         
-    elif action_type == "SELL" and ticker in ledger["holdings"]:
-        holding_info = ledger["holdings"].pop(ticker)
-        gross_return_cash = holding_info["shares"] * price
-        
-        # 卖出回笼资金时也要扣除可能存在的佣金
-        net_returned_cash = gross_return_cash - commission_cost_usd
-        ledger["cash"] += net_returned_cash
-        
-        ledger["trade25_used_hkd"] += (gross_return_cash * USD_TO_HKD_FX_RATE)
-        pnl = net_returned_cash - (holding_info["entry_price"] * holding_info["shares"])
-        
-        ledger["history_trades"].append({
-            "date": now_str, "ticker": ticker, "type": "SELL", "shares": holding_info["shares"], "price": price,
-            "commission_paid_usd": commission_cost_usd, "pnl": round(pnl, 2)
-        })
-        print(f"💰 成功平仓 {ticker}：实际到账金额: ${net_returned_cash:.2f}，手续费: ${commission_cost_usd}")
-        return True
-        
-    return False
+        if spy_current > spy_sma20:
+            ledger["spy_above_sma20_days"] = ledger.get("spy_above_sma20_days", 0) + 1
+        else:
+            ledger["spy_above_sma20_days"] = 0
+            
+        return spy_current, spy_sma20, ledger["spy_above_sma20_days"]
+    except Exception as e:
+        print(f"Polars计算大盘趋势异常: {e}", file=sys.stderr)
+        return 0.0, 0.0, 0
 
 
-def run_survivor_v5_pipeline():
-    """主控运行：盘点营收并生成带有 Trade25 额度监控的早报发往 Bark"""
+def analyze_news_with_time_decay(news_item, ledger):
+    """【48小时情绪半衰期过滤器】：强制剔除过期旧闻，防范庄家利用历史利好诱多"""
+    title = news_item.get('title', '')
+    summary = news_item.get('summary', '') or news_item.get('text', '')
+    pub_time_raw = news_item.get('providerPublishTime') or news_item.get('pubDate')
+    
+    if not title: return "NEUTRAL"
+    
+    if pub_time_raw:
+        try:
+            pub_datetime = datetime.fromtimestamp(pub_time_raw) if isinstance(pub_time_raw, (int, float)) else datetime.strptime(pub_time_raw, '%Y-%m-%dT%H:%M:%SZ')
+            if datetime.now() - pub_datetime > timedelta(hours=48):
+                return "NEUTRAL" 
+        except:
+            pass
+            
+    text = (title + " " + summary).lower()
+    if any(w in text for w in ["upgrade", "beats", "surpasses", "buy", "growth", "contract", "raised"]): return "BULL"
+    if any(w in text for w in ["downgrade", "misses", "investigation", "lawsuit", "drop", "plunge", "cuts"]): return "BEAR"
+    return "NEUTRAL"
+
+
+def trigger_tail_risk_hedging(ledger, market_data):
+    """【主动型对冲锁机制】：跌破 5% 最大回撤时，自动执行高 Beta 股票减产 30%，并将现金直接倾注于 SQQQ 锁死下行亏损"""
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    high_beta_tickers = ["QQQ", "NVDA"]
+    cash_reclaimed = 0.0
+    
+    for ticker in high_beta_tickers:
+        if ticker in ledger["holdings"]:
+            hold_info = ledger["holdings"][ticker]
+            shares_to_sell = round(hold_info["shares"] * 0.3, 4)
+            if shares_to_sell > 0:
+                try:
+                    price = float(market_data.get(ticker)['Close'].iloc[-1])
+                    cash_reclaimed += (shares_to_sell * price)
+                    hold_info["shares"] = round(hold_info["shares"] - shares_to_sell, 4)
+                    if hold_info["shares"] <= 0: ledger["holdings"].pop(ticker)
+                    ledger["history_trades"].append({"date": now_str, "ticker": ticker, "type": "HEDGE_REDUCE", "shares": shares_to_sell, "price": price})
+                except: pass
+                    
+    if cash_reclaimed > 0:
+        try:
+            hedge_price = float(market_data.get(HEDGE_INSTRUMENT)['Close'].iloc[-1])
+            hedge_shares = round(cash_reclaimed / hedge_price, 4)
+            if HEDGE_INSTRUMENT in ledger["holdings"]:
+                ledger["holdings"][HEDGE_INSTRUMENT]["shares"] = round(ledger["holdings"][HEDGE_INSTRUMENT]["shares"] + hedge_shares, 4)
+            else:
+                ledger["holdings"][HEDGE_INSTRUMENT] = {"shares": hedge_shares, "entry_price": hedge_price}
+            ledger["history_trades"].append({"date": now_str, "ticker": HEDGE_INSTRUMENT, "type": "HEDGE_BUY", "shares": hedge_shares, "price": hedge_price})
+        except:
+            ledger["cash"] += cash_reclaimed
+
+
+def release_tail_risk_hedging(ledger, market_data):
+    """【智能解封对冲】：大盘重新站稳 SMA20 连续 2 天后，自动清仓 SQQQ 变现，恢复全行业进攻仓位"""
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if HEDGE_INSTRUMENT in ledger["holdings"]:
+        try:
+            hedge_info = ledger["holdings"].pop(HEDGE_INSTRUMENT)
+            price = float(market_data.get(HEDGE_INSTRUMENT)['Close'].iloc[-1])
+            reclaimed_cash = hedge_info["shares"] * price
+            ledger["cash"] += reclaimed_cash
+            ledger["history_trades"].append({"date": now_str, "ticker": HEDGE_INSTRUMENT, "type": "HEDGE_LIQUIDATE", "shares": hedge_info["shares"], "price": price})
+        except: pass
+
+
+def fetch_news_worker(ticker):
+    try: return ticker, yf.Ticker(ticker).news
+    except: return ticker, []
+
+def run_advanced_survivor_pipeline():
+    """【GitHub Actions 专用运行逻辑】：每次单向触发盘点，并将变化持久化写入本地 JSON"""
     ledger = load_ledger_v5()
     now_str = datetime.now().strftime('%Y-%m-%d')
     
     try:
+        # 16线程并发洗刷全盘 56 只股票K线数据
         market_data = yf.download(ALL_TICKERS, period="60d", group_by='ticker', threads=True, progress=False)
     except Exception as e:
-        print(f"拉取失败: {e}")
+        print(f"数据拉取失败: {e}")
         return
 
-    # 1. 计算总市值
+    # 调用 Polars 向量引擎解算大盘均线状态
+    spy_price, spy_sma20, consecutive_days = check_spy_health_via_polars(market_data, ledger)
+    
+    # 统计资产总市值
     current_stock_value = 0.0
     for ticker, info in ledger["holdings"].items():
         try: current_stock_value += info["shares"] * float(market_data.get(ticker)['Close'].iloc[-1])
@@ -152,34 +186,37 @@ def run_survivor_v5_pipeline():
         
     total_net_worth = ledger["cash"] + current_stock_value
     
-    # 2. 统计 Trade25 的可用额度剩余
-    remaining_free_hkd = max(0.0, TRADE25_MONTHLY_FREE_LIMIT_HKD - ledger["trade25_used_hkd"])
-    free_quota_pct = (remaining_free_hkd / TRADE25_MONTHLY_FREE_LIMIT_HKD) * 100
-    
-    # 3. 组装资产报告文本
-    report_title = "🛡️ 寿星 V5 策略盘点 (Trade25 额度护航)"
-    report_body = f"### 📊 账户生存与 Trade25 额度盘点 ({now_str})\n\n"
-    report_body += f"* **目前总资产净值 (NAV)**: `${total_net_worth:,.2f}`\n"
-    report_body += f"* **可用风控流动现金池**: `${ledger['cash']:,.2f}`\n"
-    report_body += f"  └── *当前持仓标的汇总*: `{list(ledger['holdings'].keys()) if ledger['holdings'] else '全部安全空仓'}`\n\n"
-    
-    report_body += "#### 🎫 Trade25 免佣额度追踪看板\n"
-    report_body += f"* **本月已用免佣金交易量**: `{ledger['trade25_used_hkd']:,.2f} HKD`\n"
-    report_body += f"* **剩余完全免佣港币额度**: `{remaining_free_hkd:,.2f} HKD` (占比: `{free_quota_pct:.1f}%`)\n"
-    
-    if remaining_free_hkd > 0:
-        report_body += "  └── 🎉 *状态：下周一买卖将保持【100%完全免佣金】丝滑模式运行！*\n"
-    else:
-        report_body += f"  └── ⚠️ *警告：本月免佣金额度已耗尽！后续单笔买卖将每笔严格计入 ${POST_FREE_MIN_COMMISSION_USD} 最低手续费摩擦！*\n"
-        
-    report_body += f"\n*💡 提示：跨月系统会自动清零并重新赋予 25 万 HKD 额度。数据已安全持久化写入本地盘。*"
+    # trailing 最大回撤风控状态机判定
+    history_nw = [x["net_worth"] for x in ledger["daily_net_worth_history"]]
+    peak_worth = max(history_nw) if history_nw else INITIAL_BUDGET
+    if total_net_worth > peak_worth: peak_worth = total_net_worth
+    current_drawdown = ((peak_worth - total_net_worth) / peak_worth) * 100 if total_net_worth < peak_worth else 0.0
 
-    save_ledger_v4(ledger) # 保存账本状态
+    status_str = "🟢 策略运行稳健，账户处于安全增值期"
     
-    if BARK_KEY != "请在这里替换成你的Bark_Key":
-        requests.post(f"https://day.app{BARK_KEY}", data={"title": report_title, "body": report_body, "group": "Trade25量化流", "isArchive": 1}, timeout=10)
-    print(report_body)
+    if current_drawdown >= MAX_DRAWDOWN_LIMIT and not ledger["circuit_breaker_active"]:
+        ledger["circuit_breaker_active"] = True
+        trigger_tail_risk_hedging(ledger, market_data)
+        status_str = "🚨 触发 5% 回撤防御熔断！已自动执行【高Beta持仓减产 30% 并买入 SQQQ 对冲防护】！"
+    elif ledger["circuit_breaker_active"]:
+        if current_drawdown < MAX_DRAWDOWN_LIMIT and consecutive_days >= 2:
+            ledger["circuit_breaker_active"] = False
+            release_tail_risk_hedging(ledger, market_data)
+            status_str = f"🎉 右侧拐点确认！大盘已连续 {consecutive_days} 天收于20日线之上。对冲功成身退，全线恢复交易权限。"
+        else:
+            status_str = f"🔒 熔断锁保持。大盘 SPY 连续站稳进度: {consecutive_days}/2 天。SQQQ 对冲头寸在场护盘中。"
 
-
-if __name__ == "__main__":
-    run_survivor_v5_pipeline()
+    # 48小时高活性新闻过滤抓取
+    new_bulls, new_bears = [], []
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        futures = [executor.submit(fetch_news_worker, t) for t in ALL_TICKERS if t not in ["SPY", HEDGE_INSTRUMENT]]
+        for fut in as_completed(futures):
+            t, t_news = fut.result()
+            if not t_news: continue
+            for item in t_news[:2]:
+                nid = item.get('uuid') or item.get('id')
+                if not nid or nid in ledger.get("pushed_news_ids", []): continue
+                
+                sentiment = analyze_news_with_time_decay(item, ledger)
+                
+                if sentiment == "BULL": new_bulls.append({"ticker": t, "title": item.get('title'), "link": item.get('link'), "id": nid})
