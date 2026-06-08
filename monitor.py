@@ -10,7 +10,6 @@ import yfinance as yf
 BARK_KEY = os.environ.get("BARK_KEY")
 
 # 🎯 监控目标池：涵盖您之前的大票，以及 Serenity 点名的高弹性潜力瓶颈股
-# 注：Sivers (SIVE.ST) 和 X-FAB (XFAB.PA) 为欧洲本土主板，美股对应 ADR 为 SIVNY 和 XFABF
 MONITOR_STOCKS = [
     "AXTI", "SIVNY", "XFABF", "WOLF", "VICR", "AAOI",  # Serenity 1-30亿硬核卡点股
     "GOOG", "NVDA", "MU"                              # 之前聊过的核心科技大票
@@ -74,7 +73,6 @@ def execute_serenity_strategy():
                 continue
                 
             # 3. 计算量化指标
-            # 取出最新的今日成交量，以及前 30 天的历史成交量序列
             today_volume = hist['Volume'].iloc[-1]
             past_30_days_volume = hist['Volume'].iloc[-31:-1]
             avg_volume_30d = past_30_days_volume.mean()
@@ -96,7 +94,6 @@ def execute_serenity_strategy():
                     f"📈 成交量增幅: 达到 30天均值的 {current_multiplier:.2f} 倍 (超 3 倍阈值)"
                 )
                 
-                # 发送高危特制 Bark 通道
                 send_to_bark(title=push_title, content=push_content, group="Serenity冷门爆款")
                 
             time.sleep(1) # 策略防封锁延迟
@@ -106,5 +103,20 @@ def execute_serenity_strategy():
 
 
 if __name__ == "__main__":
+    # ==================== 🛠️ 新增测试验证模块 ====================
+    print("🧪 正在执行 Bark 通道穿透测试...")
+    test_title = "🚨 核心爆破：【AXTI】主力资金疯狂扫货！"
+    test_content = (
+        f"💡 触发原因: Serenity 策略测试验证\n"
+        f"💰 模拟价格: $5.42\n"
+        f"🏢 模拟市值: $245.0M (符合1-30亿标准)\n"
+        f"📈 模拟成交量增幅: 达到 30天均值的 3.85 倍 (测试打通成功)"
+    )
+    # 强制发送一条模拟警报到您的手机上
+    send_to_bark(title=test_title, content=test_content, group="Serenity冷门爆款")
+    print("🧪 测试发送指令已下发。")
+    # ==========================================================
+
+    # 执行真实的策略扫描
     execute_serenity_strategy()
     print("🏁 全自动化策略异动扫描完成。")
