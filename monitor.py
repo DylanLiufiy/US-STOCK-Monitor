@@ -166,7 +166,13 @@ def fetch_news_worker(ticker):
 def run_advanced_survivor_pipeline():
     """【GitHub Actions 专用运行逻辑】：每次单向触发盘点，并将变化持久化写入本地 JSON"""
     ledger = load_ledger_v5()
-    now_str = datetime.now().strftime('%Y-%m-%d')
+    now_dt = datetime.now()
+    now_str = now_dt.strftime('%Y-%m-%d')
+    
+    # 🔒 【防打扰升级】：判断当前运行时间是否处于北京时间的深夜睡觉时段
+    # GitHub Actions 服务器强制采用 UTC 时间。
+    # 北京时间 23:00 - 次日 05:00 映射到 UTC 时间为 15:00 - 21:00
+    is_sleep_time = 15 <= now_dt.hour <= 21
     
     try:
         # 16线程并发洗刷全盘 56 只股票K线数据
@@ -193,16 +199,19 @@ def run_advanced_survivor_pipeline():
     current_drawdown = ((peak_worth - total_net_worth) / peak_worth) * 100 if total_net_worth < peak_worth else 0.0
 
     status_str = "🟢 策略运行稳健，账户处于安全增值期"
+    force_alert = False # 标志位：是否强制打破静默发出高危风险警报
     
     if current_drawdown >= MAX_DRAWDOWN_LIMIT and not ledger["circuit_breaker_active"]:
         ledger["circuit_breaker_active"] = True
         trigger_tail_risk_hedging(ledger, market_data)
         status_str = "🚨 触发 5% 回撤防御熔断！已自动执行【高Beta持仓减产 30% 并买入 SQQQ 对冲防护】！"
+        force_alert = True # 触及生死线，必须强震动唤醒
     elif ledger["circuit_breaker_active"]:
         if current_drawdown < MAX_DRAWDOWN_LIMIT and consecutive_days >= 2:
             ledger["circuit_breaker_active"] = False
             release_tail_risk_hedging(ledger, market_data)
             status_str = f"🎉 右侧拐点确认！大盘已连续 {consecutive_days} 天收于20日线之上。对冲功成身退，全线恢复交易权限。"
+            force_alert = True
         else:
             status_str = f"🔒 熔断锁保持。大盘 SPY 连续站稳进度: {consecutive_days}/2 天。SQQQ 对冲头寸在场护盘中。"
 
@@ -216,7 +225,3 @@ def run_advanced_survivor_pipeline():
             for item in t_news[:2]:
                 nid = item.get('uuid') or item.get('id')
                 if not nid or nid in ledger.get("pushed_news_ids", []): continue
-                
-                sentiment = analyze_news_with_time_decay(item, ledger)
-                
-                if sentiment == "BULL": new_bulls.append({"ticker": t, "title": item.get('title'), "link": item.get('link'), "id": nid})
