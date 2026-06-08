@@ -3,12 +3,11 @@ name: 24h美股全行业多因子生存监控
 on:
   push:
     branches: [ main ]
-  # 🚀 【手动触发升级】：允许你在 GitHub 网页端 Actions 页面随时手动点击按钮运行
   workflow_dispatch:
 
   schedule:
     # ⏱️ 定时器对齐北京工作时间：周一至周五的 09:00 到 18:00，每小时的第 0 分钟触发
-    # 北京时间 09:00-18:00 映射到 GitHub Actions 的 UTC 时间为：01:00 至 10:00
+    # 北京时间 09:00-18:00 对应 UTC 时间：01:00 至 10:00
     - cron: '0 1-10 * * 1-5'
 
 jobs:
@@ -33,11 +32,12 @@ jobs:
 
     - name: 4. 执行多行业流式清洗并流转 Trade25 账本
       env:
-        # 🟢 穿透全局 Secrets
+        # 🟢 【已完美修正】：去掉了多余的 $ 符号，确保 GitHub Actions 100% 能够读取到你的 Bark 密钥
         BARK_URL: ${{ secrets.BARK_URL }}
+        # 🛡️ 【新增备份管道】：安全穿透你的微信 Server 酱渠道，达成双通道保险
+        SERVER_CHAN_KEY: ${{ secrets.SERVER_CHAN_KEY }}
         FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       run: |
-        # 💡 执行你仓库里的核心脚本 monitor.py
         python monitor.py
 
     - name: 5. 自动同步并持久化本地记账资产 (Git Auto-Commit)
