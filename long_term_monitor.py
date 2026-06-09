@@ -37,7 +37,6 @@ def send_to_bark_with_override(title: str, content: str, current_vix: float, gro
     end_allowed_minutes = 22 * 60
     is_sleep_hours = not (start_allowed_minutes <= current_total_minutes <= end_allowed_minutes)
 
-    # 黑天鹅核心熔断逻辑：VIX >= 35 深夜强推唤醒
     if is_sleep_hours and current_vix >= 35:
         print(f"🚨🚨 【黑天鹅特权触发】VIX 达到 {current_vix:.2f}！系统深夜强行唤醒！")
         title = "🚨【黑天鹅大底强行唤醒】" + title
@@ -49,7 +48,6 @@ def send_to_bark_with_override(title: str, content: str, current_vix: float, gro
     encoded_content = urllib.parse.quote_plus(content)
     encoded_group = urllib.parse.quote_plus(group)
     
-    # 核心提升：组装 Bark 协议，加入点击直达和自动归档参数
     url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group={encoded_group}&sound=calypso&isArchive=1"
     if click_url:
         url += f"&url={urllib.parse.quote_plus(click_url)}"
@@ -84,13 +82,13 @@ def process_stock_signal(ticker_symbol: str, is_etf: bool, current_vix: float, s
                 roe = info.get("returnOnEquity", 0)
                 pe = info.get("trailingPE", 0)
                 
-                if roe is None or roe < ROE_THRESHOLD: return
-                if pe is None or pe > PE_MAX_THRESHOLD or pe <= 0: return
+                if roe is None or roe < ROE_THRESHOLD: return False
+                if pe is None or pe > PE_MAX_THRESHOLD or pe <= 0: return False
             except Exception:
-                return
+                return False
 
         hist = ticker.history(period="250d").dropna(subset=['Close']) 
-        if len(hist) < 210: return
+        if len(hist) < 210: return False
 
         current_price = float(hist['Close'].iloc[-1])
         ma200 = float(hist['Close'].rolling(window=200).mean().iloc[-1])
@@ -101,7 +99,6 @@ def process_stock_signal(ticker_symbol: str, is_etf: bool, current_vix: float, s
             suggested_shares = current_flexible_spend / current_price if current_price > 0 else 0
             stop_loss_price = current_price * 0.93 
 
-            # 高阶提升：生成该股对应的雅虎看盘链接，实现点击推送直接看K线
             yahoo_finance_url = f"https://yahoo.com{ticker_symbol}"
 
             push_title = f"💎 资产加码通知：【{ticker_symbol}】进入绝佳黄金坑！"
@@ -128,7 +125,7 @@ def process_stock_signal(ticker_symbol: str, is_etf: bool, current_vix: float, s
                 click_url=yahoo_finance_url
             )
             time.sleep(1.5)
-            return True # 触发了有效信号
+            return True 
     except Exception as e:
         print(f"❌ 处理 {ticker_symbol} 异常: {e}")
     return False
@@ -164,17 +161,15 @@ def execute_combined_diagnosis():
     current_flexible_spend = LONG_TERM_FLEXIBLE_RESERVE * allocation_ratio
     any_triggered = False
 
-    # 1. 处理大盘 ETF
     for etf_symbol in INTELLIGENT_ETFS:
         if process_stock_signal(etf_symbol, True, current_vix, sector_rsi, vix_strategy, current_flexible_spend, status_label):
             any_triggered = True
 
-    # 2. 处理精选长线个股
     for stock_symbol in LONG_TERM_STOCKS:
         if process_stock_signal(stock_symbol, False, current_vix, sector_rsi, vix_strategy, current_flexible_spend, status_label):
             any_triggered = True
 
-    # 核心提升：断网防御与绿色生命心跳线机制。若当天风平浪静无买入信号，也强制推送绿色心跳。
+    # 🟢 存活心跳通知机制
     if not any_triggered:
         print("🟢 今日大盘行情平稳，长线策略未达黄金坑临界点。发送安全心跳线。")
         send_to_bark_with_override(
