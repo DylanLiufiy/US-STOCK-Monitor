@@ -1,9 +1,13 @@
 name: US Stock Master Quant Monitor
 
 on:
+  # ✨ 新增：只要向 main 分支提交或推送代码，就立刻触发一次运行检验
+  push:
+    branches:
+      - main
+
+  # ⏱ 【终极时间防御矩阵】（GitHub 强制 UTC 时区，以下已完美兼容全年度美股夏/冬令时转换）
   schedule:
-    # ⏱ 【终极时间防御矩阵】（GitHub 强制 UTC 时区，以下已完美兼容全年度美股夏/冬令时转换）
-    
     # 1. 盘前定投诊断（兼顾夏/冬令时盘前）：UTC 01:30 / 02:30 -> 北京时间 09:30 / 10:30
     - cron: '30 1 * * 1-5'
     - cron: '30 2 * * 1-5'
@@ -51,7 +55,7 @@ jobs:
           echo "================ 执行：全美股主力爆破雷达 ================"
           python monitor.py
 
-  # 💎 正规军 Job：独立扫描中长线资产加码（与短线并行，互不干扰，一方崩溃另一方照常运行）
+  # 💎 正规军 Job：独立扫描中长线资产加码（并行隔离）
   long-term-job:
     runs-on: ubuntu-latest
     steps:
