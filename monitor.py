@@ -34,13 +34,13 @@ def send_to_bark_with_override(title: str, content: str, multiplier: float, grou
 
 def fetch_us_stock_universe():
     """
-    ⚡ 终极纠正：最纯净、无任何冗余关键字的 Finviz 全美股初选引擎
+    🛰️ 终极校准：精准对齐官方名称 'filters_dict' 的全美股初选清洗引擎
     """
     print("🛰️ 正在联线华尔街数据中心，全量扫描全美股数千家挂牌公司...")
     try:
         fscreen = Overview()
-        # ✨ 终极修复：移除了多余的 table 传参，采用该官方库最标准合规的独家字典赋值法
-        fscreen.set_filter(filter_dict={'Market Cap.': 'Custom (100M to 3B)', 'Country': 'USA'})
+        # ✨ ✨ 核心终极修复：将 'filter_dict' 修正为官方标准带 s 的 'filters_dict'
+        fscreen.set_filter(filters_dict={'Market Cap.': 'Custom (100M to 3B)', 'Country': 'USA'})
         df = fscreen.screener_view()
         if df is not None and not df.empty:
             ticker_list = df['Ticker'].tolist()
@@ -49,7 +49,6 @@ def fetch_us_stock_universe():
         return []
     except Exception as e:
         print(f"❌ 全美股初选引擎连接失败: {e}，系统已无缝启动 14 只核心硬科技精锐防线...")
-        # 🛡️ 稳健的容错防线：完美保留符合 yfinance 35天 K 线提取的 14 只卡点标的
         return ["AXTI", "WOLF", "XFABF", "VICR", "AAOI", "RMBS", "ALGM", "LSCC", "CEVA", "ACMR", "PXLW", "INDI", "RAMP", "HIMX"]
 
 
