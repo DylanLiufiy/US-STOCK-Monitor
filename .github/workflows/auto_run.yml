@@ -2,41 +2,75 @@ name: US Stock Master Quant Monitor
 
 on:
   schedule:
-    # ⏱️ 完美开盘把风对齐（北京时间 = UTC + 8 小时）
-    - cron: '30 1 * * 1-5'   # ☀️ 北京时间 早上 09:30（定投盘前诊断）
-    - cron: '30 6 * * 1-5'   # 🌤️ 北京时间 下午 14:30（午间趋势复盘）
-    - cron: '30 12 * * 1-5'  # 🌆 北京时间 晚上 20:30（美股开盘前黄金一小时）
+    # ⏱ 【终极时间防御矩阵】（GitHub 强制 UTC 时区，以下已完美兼容全年度美股夏/冬令时转换）
     
-    # ✨ 晚上 21:45（开盘一刻钟风向标），在您 22:00 睡觉前把开盘最疯狂的全美扫货个股全部推送完毕！
-    - cron: '45 13 * * 1-5'  # 🌃 北京时间 晚上 21:45 精准高频扫描
+    # 1. 盘前定投诊断（兼顾夏/冬令时盘前）：UTC 01:30 / 02:30 -> 北京时间 09:30 / 10:30
+    - cron: '30 1 * * 1-5'
+    - cron: '30 2 * * 1-5'
     
-    # 💥 深夜与凌晨黑天鹅暗哨守卫（普通异动静音拦截，大崩盘或特大暴雷才会无视睡眠锁强推）
-    - cron: '0 18 * * 1-5'   # 🌙 北京时间 凌晨 02:00 
-    - cron: '30 19 * * 1-5'  # 🌅 北京时间 清晨 03:30 
-  workflow_dispatch:
+    # 2. 午间趋势复盘（兼顾夏/冬令时午盘）：UTC 06:30 / 07:30 -> 北京时间 14:30 / 15:30
+    - cron: '30 6 * * 1-5'
+    - cron: '30 7 * * 1-5'
+    
+    # 3. 美股开盘前黄金一小时：UTC 12:30 / 13:30 -> 北京时间 20:30 / 21:30
+    - cron: '30 12 * * 1-5'
+    - cron: '30 13 * * 1-5'
+    
+    # 4. 🔥 开盘冲锋爆破核心眼位（兼顾夏令时21:45与冬令时22:45开盘一刻钟风向标）
+    - cron: '45 13 * * 1-5'  # 夏令时对应北京时间 21:45
+    - cron: '45 14 * * 1-5'  # 冬令时对应北京时间 22:45
+    
+    # 5. 深夜与凌晨黑天鹅暗哨守卫（半夜系统性暴跌强推唤醒）
+    - cron: '0 18 * * 1-5'   # 北京时间 凌晨 02:00
+    - cron: '30 19 * * 1-5'  # 北京时间 清晨 03:30
+    
+  workflow_dispatch: # 保持允许手动触发测试
 
 jobs:
-  master-quant-job:
+  # ⚔️ 敢死队 Job：独立扫描全美股放量爆破
+  monitor-sniper-job:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    - name: Execute Dual-Strategy Core
-      env:
-        BARK_KEY: ${{ secrets.BARK_KEY }}
-      run: |
-        echo "================ 1. 执行全美股爆破雷达 ================"
-        python monitor.py
-        echo "================ 2. 执行长线核心资产加码雷达 ================"
-        python long_term_monitor.py
+      - name: Execute Short-Term Sniper
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+        run: |
+          echo "================ 执行：全美股主力爆破雷达 ================"
+          python monitor.py
+
+  # 💎 正规军 Job：独立扫描中长线资产加码（与短线并行，互不干扰，一方崩溃另一方照常运行）
+  long-term-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Execute Long-Term Core
+        env:
+          BARK_KEY: ${{ secrets.BARK_KEY }}
+        run: |
+          echo "================ 执行：长线核心资产加码雷达 ================"
+          python long_term_monitor.py
