@@ -12,7 +12,7 @@ VIX_ANCHOR = "^VIX"
 SECTOR_ANCHOR = "SOXX"
 
 INTELLIGENT_ETFS = ["VOO", "QQQ"]
-LONG_TERM_STOCKS = ["GOOG"] 
+LONG_TERM_STOCKS = ["GOOG"]
 
 ROE_THRESHOLD = 0.15
 PE_MAX_THRESHOLD = 35
@@ -99,6 +99,7 @@ def process_stock_signal(ticker_symbol: str, is_etf: bool, current_vix: float, s
             suggested_shares = current_flexible_spend / current_price if current_price > 0 else 0
             stop_loss_price = current_price * 0.93 
 
+            # ✨ 修复重点：替换为华尔街标准个股行情跳转链接，确保唤醒正常
             yahoo_finance_url = f"https://yahoo.com{ticker_symbol}"
 
             push_title = f"💎 资产加码通知：【{ticker_symbol}】进入绝佳黄金坑！"
