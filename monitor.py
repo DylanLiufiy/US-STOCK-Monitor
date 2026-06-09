@@ -122,7 +122,6 @@ def execute_all_us_strategy(dynamic_stocks):
                 suggested_shares = SINGLE_SNIPER_BUDGET_USD / today_price if today_price > 0 else 0
                 stop_loss_price = today_price * 0.93  
 
-                # 高阶提升：生成看盘超链接
                 yahoo_finance_url = f"https://yahoo.com{ticker_symbol}"
                 triggered_count += 1
 
@@ -145,9 +144,9 @@ def execute_all_us_strategy(dynamic_stocks):
         except Exception:
             continue
 
-    # 核心提升：短线突击雷达心跳线
+    # 🟢 存活心跳通知机制
     if triggered_count == 0:
-        print("🟢 今日未扫描到全美股合规的小盘高换手爆破标的。发送正常运行心跳线。")
+        print("🟢 今日未扫描到全美股合规标的。发送正常运行心跳线。")
         send_to_bark_raw(
             title="🟢 短线爆破雷达：安全站岗中",
             content=f"全美股大数据穿透扫描结束。今日初选前 {len(target_stocks)} 只个股未产生量价异动狂飙。系统运行良好。",
