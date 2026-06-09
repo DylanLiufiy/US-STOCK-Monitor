@@ -17,41 +17,39 @@ ROE_THRESHOLD = 0.15
 PE_MAX_THRESHOLD = 35             
 RSI_BUY_LINE = 35                 
 
+# 💵 真实锁定：20,000 美元中长线机动储备金
 LONG_TERM_FLEXIBLE_RESERVE = 20000
 # ==================================================================
 
 
 def send_to_bark_with_override(title: str, content: str, current_vix: float, group: str = "灵活资金加码雷达"):
-    """
-    ⏰ 带有“黑天鹅熔断特权”的智能 Bark 推送端（时间已调整为 08:00 ~ 22:00）
-    """
+    """⏰ 带有“黑天鹅熔断特权”的智能 Bark 推送端（时间已放宽至 08:00 ~ 22:00）"""
     if not BARK_KEY:
-        print(f"\n⚠️ 网页端/控制台实时诊断输出 -> \n【{title}】\n{content}\n")
+        print(f"\n⚠️ 控制台实时输出 -> \n【{title}】\n{content}\n")
         return
 
-    # 1. 检查当前北京时间
     bj_time = datetime.utcnow() + timedelta(hours=8)
     bj_hour = bj_time.hour
     bj_minute = bj_time.minute
     current_total_minutes = bj_hour * 60 + bj_minute
     
-    start_allowed_minutes = 8 * 60         # 早上 08:00
-    end_allowed_minutes = 22 * 60         # ✨ 精准修改：晚上 22:00
+    start_allowed_minutes = 8 * 60         
+    end_allowed_minutes = 22 * 60         
 
     is_sleep_hours = not (start_allowed_minutes <= current_total_minutes <= end_allowed_minutes)
 
-    # 2. 黑天鹅核心熔断逻辑
+    # 黑天鹅核心熔断逻辑：VIX >= 35 深夜强推唤醒
     if is_sleep_hours and current_vix >= 35:
-        print(f"🚨🚨 【黑天鹅特权触发】当前北京时间 {bj_time.strftime('%H:%M:%S')}，虽处于深夜，但 VIX 指数达到 {current_vix:.2f} 爆表状态！系统强行击穿睡眠锁发送高危推送！")
+        print(f"🚨🚨 【黑天鹅特权触发】VIX 达到 {current_vix:.2f}！系统深夜强行唤醒！")
         title = "🚨【黑天鹅大底强行唤醒】" + title
     elif is_sleep_hours:
-        print(f"💤 当前北京时间为 {bj_time.strftime('%H:%M:%S')}，市场处于常规波动 (VIX: {current_vix:.2f})，静音拦截，不打扰主人。")
+        print(f"💤 当前北京时间为 {bj_time.strftime('%H:%M:%S')}，常规波动静音拦截。")
         return
 
     encoded_title = urllib.parse.quote_plus(title)
     encoded_content = urllib.parse.quote_plus(content)
     encoded_group = urllib.parse.quote_plus(group)
-    url = f"https://day.app{BARK_KEY}/{encoded_title}/{encoded_content}?group={encoded_group}&sound=calypso"
+    url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group={encoded_group}&sound=calypso"
     try: requests.get(url, timeout=10)
     except Exception as e: print(f"❌ 推送失败: {e}")
 
@@ -70,7 +68,8 @@ def calculate_rsi(prices, period=14):
 def execute_combined_diagnosis():
     current_date = datetime.now()
     is_live_trading = current_date >= datetime(2026, 7, 1)
-    status_label = "🛒 实盘正式开火" if is_live_trading else "⚠️ 模拟备战观望期 (7月1日正式记账)"
+    # ✨ 核心改进：状态变更为实战演练期，且 100% 允许在手机上接收消息！
+    status_label = "🛒 实盘正式开火" if is_live_trading else "🧪 2026实战模拟推演期 (7月1日正式记账)"
     
     print(f"🚀 启动系统 [当前状态：{status_label}]...")
     
@@ -112,20 +111,24 @@ def execute_combined_diagnosis():
             
             if is_stock_above_ma200 and (current_rsi <= RSI_BUY_LINE or sector_rsi <= 35):
                 suggested_shares = current_flexible_spend / current_price if current_price > 0 else 0
+                
+                # ✨ 核心改进：顺便帮您在文末计算出大票无条件 7% 割肉硬止损线
+                stop_loss_price = current_price * 0.93
+                
                 push_title = f"💎 资产加码通知：【{ticker_symbol}】进入绝佳黄金坑！"
                 push_content = (
-                    f"🏷️ 【系统运行状态】: {status_label}\n"
+                    f"🏷️ 【当前系统阶段】: {status_label}\n"
                     f"🧐 实时 VIX 恐慌指数: {current_vix:.2f} | 行业 RSI: {sector_rsi:.1f}\n"
                     f"🗺️ 宏观风控大局观: {vix_strategy}\n"
                     f"------------------------\n"
                     f"💰 实时股价: ${current_price:.2f} (稳守牛熊生命线 ${ma200:.2f} 上方)\n"
-                    f"🚨 【2万美元储备金大票加码执行单】:\n"
-                    f"💵 本次建议划扣储备弹药: 【 ${current_flexible_spend:,.0f} 美元 】\n"
-                    f"🛒 建议即刻下单买入: 【 {suggested_shares:.0f} 股 】\n"
+                    f"🚨 【储备金加码精准跟单单】:\n"
+                    f"💵 本次分配子弹: 【 ${current_flexible_spend:,.0f} 美元 】\n"
+                    f"🛒 建议模拟买入股数: 【 {suggested_shares:.0f} 股 】\n"
+                    f"🛑 【华尔街防线】: 若买入，7% 机械硬止损价为 【 ${stop_loss_price:.2f} 】\n"
                     f"------------------------\n"
                     f"📅 【每月发薪日正规军强制纪律单】:\n"
-                    f"💵 工资额度分配: 请确保本月到账收入中，已分别划扣 700 美元 定额定投无条件买入 VOO 与 QQQ 底仓！\n"
-                    f"📝 注: 接收时段已限制在北京时间 08:00~22:00 之间。夜间全自动静音拦截。"
+                    f"💵 工资分配: 发薪后 $1,400 新资金请分别对半 700 美元买入 VOO 与 QQQ 底仓！"
                 )
                 send_to_bark_with_override(title=push_title, content=push_content, current_vix=current_vix, group="灵活资金加码雷达")
             time.sleep(1)
