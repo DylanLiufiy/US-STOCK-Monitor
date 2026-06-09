@@ -9,10 +9,7 @@ from finvizfinance.screener.overview import Overview
 
 BARK_KEY = os.environ.get("BARK_KEY")
 
-MARKET_CAP_MIN = 100_000_000      
-MARKET_CAP_MAX = 3_000_000_000    
 VOLUME_MULTIPLIER = 3.0           
-
 SINGLE_SNIPER_BUDGET_USD = 800
 
 
@@ -34,17 +31,17 @@ def send_to_bark_with_override(title: str, content: str, multiplier: float, grou
 
 def fetch_us_stock_universe():
     """
-    🛰️ 终极校准：精准对齐官方名称 'filters_dict' 的全美股初选清洗引擎
+    🛰️ 终极通关：完美对齐官方内置内置标准 'Small ($300mln to $2bln)' 的全美股动态清洗引擎
     """
     print("🛰️ 正在联线华尔街数据中心，全量扫描全美股数千家挂牌公司...")
     try:
         fscreen = Overview()
-        # ✨ ✨ 核心终极修复：将 'filter_dict' 修正为官方标准带 s 的 'filters_dict'
-        fscreen.set_filter(filters_dict={'Market Cap.': 'Custom (100M to 3B)', 'Country': 'USA'})
+        # ✨ ✨ 核心终极修复：将无法识别的 Custom 替换为官方完全兼容的标准小盘股区间 'Small ($300mln to $2bln)'
+        fscreen.set_filter(filters_dict={'Market Cap.': 'Small ($300mln to $2bln)', 'Country': 'USA'})
         df = fscreen.screener_view()
         if df is not None and not df.empty:
             ticker_list = df['Ticker'].tolist()
-            print(f"✅ 全美股初选成功！共斩获 {len(ticker_list)} 只符合 1亿-30亿 基础门槛的小盘美股标的。")
+            print(f"✅ 全美股初选成功！共斩获 {len(ticker_list)} 只符合华尔街标准小盘门槛的美股标的。")
             return ticker_list
         return []
     except Exception as e:
