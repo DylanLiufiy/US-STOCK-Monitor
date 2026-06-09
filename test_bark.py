@@ -31,7 +31,7 @@ def test_push():
     encoded_content = urllib.parse.quote_plus(content)
 
     # ✨ ✨ 终极纠正修复：换回最标准的 Bark 官方苹果 APNS 触发终点
-    url = f"https://api.day.app{clean_key}/{encoded_title}/{encoded_content}?group=链路测试&sound=bell"
+    url = f"https://api.day.app/{clean_key}/{encoded_title}/{encoded_content}?group=链路测试&sound=bell"
 
     try:
         print(f"🌐 正在向苹果 APNS 服务器发送网络请求...")
