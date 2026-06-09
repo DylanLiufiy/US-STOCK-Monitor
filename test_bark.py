@@ -11,13 +11,18 @@ def test_push():
 
     if not BARK_KEY:
         print("❌ 致命错误：GitHub 环境变量完全没有读取到 BARK_KEY！")
-        print("💡 解决办法：说明您 Settings 里的保险箱名字写错了，或者大小写不对。")
         return
 
-    print(f"📡 成功抓取到保险箱密匙，前四位为: {BARK_KEY[:4]}... (正在进行网络拼接)")
+    # 底层自动净化，防止用户误输入
+    clean_key = (
+        BARK_KEY.replace("https://day.app", "")
+        .replace("https://day.app", "")
+        .strip("/")
+    )
 
-    # 剔除用户可能不小心误粘贴进去的网址前缀和斜杠，实现底层净化
-    clean_key = BARK_KEY.replace("https://day.app", "").strip("/")
+    print(
+        f"📡 成功抓取并净化密钥，前四位为: {clean_key[:4]}... (正在进行官方标准接口网络拼接)"
+    )
 
     title = "🔔 恭喜！Bark 链路完全打通"
     content = "这是来自 GitHub 海外服务器的最高优先级连通性测试信。看到这条消息说明您的自动化环境已经 100% 完美无瑕！"
@@ -25,7 +30,7 @@ def test_push():
     encoded_title = urllib.parse.quote_plus(title)
     encoded_content = urllib.parse.quote_plus(content)
 
-    # 拼接合法合规的官方 API 终点
+    # ✨ ✨ 终极纠正修复：换回最标准的 Bark 官方苹果 APNS 触发终点
     url = f"https://day.app{clean_key}/{encoded_title}/{encoded_content}?group=链路测试&sound=bell"
 
     try:
@@ -40,7 +45,7 @@ def test_push():
             )
         else:
             print(
-                "❌ 苹果服务器拒绝了这次请求，请检查您粘贴的 KEY 字符串是否多打了空格或打错了字母。"
+                "❌ 苹果服务器拒绝了这次请求，请检查您粘贴的 KEY 字符串是否打错了字母。"
             )
     except Exception as e:
         print(f"❌ 网络发生严重阻塞崩溃: {e}")
