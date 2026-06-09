@@ -10,12 +10,12 @@ from finvizfinance.screener.overview import Overview
 BARK_KEY = os.environ.get("BARK_KEY")
 
 # ==================== 📊 终极三日量价与成交额过滤器阈值 ====================
-VOLUME_MULTIPLIER = 3.0       
-MIN_STOCK_PRICE = 2.0         
-MIN_3DAY_AVG_TURNOVER = 5_000_000 
+VOLUME_MULTIPLIER = 3.0       # 昨日完整放量倍数需大于 3.0 倍
+MIN_STOCK_PRICE = 2.0         # 仙股过滤器：股价必须大于等于 $2.0
+MIN_3DAY_AVG_TURNOVER = 5_000_000 # 近3日平均日成交额必须大于 500 万美元
 
-SINGLE_SNIPER_BUDGET_USD = 800  
-MAX_SCAN_COUNT = 45             
+SINGLE_SNIPER_BUDGET_USD = 800  # 💵 敢死队固定额度：单次严格限制开火 $800 美元
+MAX_SCAN_COUNT = 45             # ⚡ 每次运行最大穿透扫描的股票数量
 # =========================================================================
 
 def send_to_bark_raw(title: str, content: str, group: str = "全美股主力爆破", click_url: str = None):
@@ -91,36 +91,43 @@ def execute_all_us_strategy(dynamic_stocks):
     for ticker_symbol in target_stocks:
         try:
             ticker = yf.Ticker(ticker_symbol)
+            # 拉取 40 天数据，清洗空行
             hist = ticker.history(period="40d").dropna(subset=['Close', 'Volume'])
             if len(hist) < 31: continue
 
-            past_30_days_volume = hist['Volume'].iloc[-31:-1]
+            # 🛠 核心策略修正：计算过去 30 天（不含最近两个交易日）的基准均量
+            past_30_days_volume = hist['Volume'].iloc[-32:-2]
             avg_volume_30d = past_30_days_volume.mean()
             if avg_volume_30d <= 0: continue
 
-            today_price = float(hist['Close'].iloc[-1])
-            today_volume = float(hist['Volume'].iloc[-1])
+            # 获取最近三个确定性交易日的数据（过滤掉盘中剧烈跳动的干扰）
+            price_t0 = float(hist['Close'].iloc[-1]) # 今日最新（若盘中，为盘中价）
+            vol_t0 = float(hist['Volume'].iloc[-1])
             
-            day_minus_1_price = float(hist['Close'].iloc[-2])
-            day_minus_1_volume = float(hist['Volume'].iloc[-2])
-            day_minus_2_price = float(hist['Close'].iloc[-3])
-            day_minus_2_volume = float(hist['Volume'].iloc[-3])
+            price_t1 = float(hist['Close'].iloc[-2]) # 昨日完整收盘价
+            vol_t1 = float(hist['Volume'].iloc[-2])
+            
+            price_t2 = float(hist['Close'].iloc[-3]) # 前日完整收盘价
+            vol_t2 = float(hist['Volume'].iloc[-3])
 
-            turnover_today = today_price * today_volume
-            turnover_d1 = day_minus_1_price * day_minus_1_volume
-            turnover_d2 = day_minus_2_price * day_minus_2_volume
+            # 计算近 3 日各天成交额
+            turnover_t0 = price_t0 * vol_t0
+            turnover_t1 = price_t1 * vol_t1
+            turnover_t2 = price_t2 * vol_t2
+            avg_3day_turnover = (turnover_t0 + turnover_t1 + turnover_t2) / 3
 
-            avg_3day_turnover = (turnover_today + turnover_d1 + turnover_d2) / 3
-            current_multiplier = today_volume / avg_volume_30d
-            mult_d1 = day_minus_1_volume / avg_volume_30d
-            mult_d2 = day_minus_2_volume / avg_volume_30d
+            # 计算昨日和前日的确定性放量倍数
+            mult_t1 = vol_t1 / avg_volume_30d
+            mult_t2 = vol_t2 / avg_volume_30d
+            current_multiplier = vol_t0 / avg_volume_30d # 今日实时放量
 
-            if today_price < MIN_STOCK_PRICE: continue
+            if price_t0 < MIN_STOCK_PRICE: continue
             if avg_3day_turnover < MIN_3DAY_AVG_TURNOVER: continue
 
-            if current_multiplier >= VOLUME_MULTIPLIER:
-                suggested_shares = SINGLE_SNIPER_BUDGET_USD / today_price if today_price > 0 else 0
-                stop_loss_price = today_price * 0.93  
+            # 🎯 触发核心铁律：昨日已经完成“完美放量爆破”（>3倍），且今日继续维持热度
+            if mult_t1 >= VOLUME_MULTIPLIER or current_multiplier >= VOLUME_MULTIPLIER:
+                suggested_shares = SINGLE_SNIPER_BUDGET_USD / price_t0 if price_t0 > 0 else 0
+                stop_loss_price = price_t0 * 0.93  
 
                 yahoo_finance_url = f"https://yahoo.com{ticker_symbol}"
                 triggered_count += 1
@@ -128,9 +135,9 @@ def execute_all_us_strategy(dynamic_stocks):
                 push_title = f"🚨 全美连续放量爆破：【{ticker_symbol}】巨量机构扫货！"
                 push_content = (
                     f"🏷 【当前系统阶段】: 🧪 2026实战模拟推演期\n"
-                    f"💰 实时收盘价: ${today_price:.2f} | 📊 今日异常放量: {current_multiplier:.2f} 倍\n"
+                    f"💰 实时收盘价: ${price_t0:.2f} | 📊 实时异动表现: 昨日放量 {mult_t1:.1f} 倍 / 今日实时 {current_multiplier:.1f} 倍\n"
                     f"💎 机构热度体检: 近3日平均日成交额达到 【 ${avg_3day_turnover:,.0f} 美元 】\n"
-                    f"📈 连续历史状态: 前日放量 {mult_d2:.1f} x ➔ 昨日放量 {mult_d1:.1f} x ➔ 今日爆破 {current_multiplier:.1f} x\n"
+                    f"📈 连续历史状态: 前日放量 {mult_t2:.1f} x ➔ 昨日爆破 {mult_t1:.1f} x ➔ 今日延续 {current_multiplier:.1f} x\n"
                     f"------------------------\n"
                     f"🎯 【全美股高流动性量化突击单】:\n"
                     f"💵 本笔固定拨发轻仓子弹: 【 $800 美元 】\n"
