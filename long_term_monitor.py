@@ -4,7 +4,7 @@ import time
 import urllib.parse
 import requests
 import yfinance as yf
-
+ 
 BARK_KEY = os.environ.get("BARK_KEY")
 SECTOR_ANCHOR = "SOXX"
 LONG_TERM_STOCKS = ["VOO", "QQQ", "GOOG", "NVDA", "MU"]
