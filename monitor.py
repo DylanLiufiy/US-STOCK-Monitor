@@ -78,7 +78,7 @@ def execute_all_us_strategy():
             
             print(f"   📊 标的 {ticker_symbol} -> 今日量倍数: {current_multiplier:.2f}x")
             
-            if current_multiplier >= VOLUME_MULTIPLIER:
+            if current_multiplier >= 0:
                 suggested_shares = SINGLE_SNIPER_BUDGET_USD / current_price if current_price > 0 else 0
                 
                 # ✨ 核心改进：自动计算冷门狙击股的 7% 硬割肉防线价格
