@@ -23,7 +23,7 @@ def send_to_bark_with_override(title: str, content: str, multiplier: float, grou
     encoded_title = urllib.parse.quote_plus(title)
     encoded_content = urllib.parse.quote_plus(content)
     encoded_group = urllib.parse.quote_plus(group)
-    url = f"https://day.app{BARK_KEY}/{encoded_title}/{encoded_content}?group={encoded_group}&sound=electronic"
+    url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group={encoded_group}&sound=electronic"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200: 
@@ -92,7 +92,7 @@ def execute_all_us_strategy():
                 if 8 <= bj_hour < 22:
                     encoded_title = urllib.parse.quote_plus(push_title)
                     encoded_content = urllib.parse.quote_plus(push_content)
-                    url = f"https://day.app{BARK_KEY}/{encoded_title}/{encoded_content}?group=全美股主力爆破&sound=electronic"
+                    url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group=全美股主力爆破&sound=electronic"
                     requests.get(url, timeout=10)
             time.sleep(1.2)
         except Exception as e: 
