@@ -7,7 +7,6 @@ on:
   workflow_dispatch: # 保持允许手动触发测试
 
   # ⏱ 【精简优化的时间防御矩阵】
-  # 移除了无效的不开盘复盘时段，精准卡位美股核心异动节点，节省 GitHub Actions 免费额度
   schedule:
     # 1. 盘前对敲与暗池异动侦测 (北京时间 21:00) -> 覆盖盘前主要放量时段
     - cron: '0 13 * * 1-5'
@@ -24,7 +23,7 @@ on:
     - cron: '30 22 * * 1-5' # 冬令时收盘后 06:30
 
 jobs:
-  # ⚙️ 基础构建：合并流水线。利用单 Job 并行或串行，不仅共享缓存，还能完美解决环境初始化耗时问题
+  # ⚙️ 基础构建：合并流水线。利用单 Job 并行或串行，共享缓存，完美解决环境初始化耗时问题
   quant-monitor-flow:
     runs-on: ubuntu-latest
     
@@ -38,13 +37,14 @@ jobs:
           python-version: '3.10'
           cache: 'pip' # 自动开启 pip 缓存，第二次运行速度提升 300%
 
-      - name: 📦 安装量化核心依赖
+      - name: 📦 安装量化与 Google 核心依赖
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then 
             pip install -r requirements.txt
           else
-            pip install yfinance pandas finvizfinance requests lxml jinja2
+            # 💡 核心升级：强行注入谷歌官方最新 SDK：google-genai，保障云端大模型接口畅通
+            pip install yfinance pandas finvizfinance requests lxml jinja2 google-genai
           fi
 
       - name: ⚔️ 运行 [短线游资席位爆破雷达]
@@ -52,7 +52,8 @@ jobs:
         continue-on-error: true 
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }} # 🚨 核心修复：注入 AI 密钥，解除纯技术面拦截限制
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 🚨 核心绑定：注入谷歌 AI 密钥，解除短线分析限制
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }} # 保留原有通道作为多模态双保险
         run: |
           echo "================ 开始执行：全美股短线游资异动穿透 ================"
           python monitor.py
@@ -60,6 +61,7 @@ jobs:
       - name: 💎 运行 [长线核心资产价值雷达]
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 🚨 核心绑定：注入谷歌 AI 密钥，激活长线宏观量化测测谎仪
         run: |
           echo "================ 开始执行：长线多因子价值股票筛选 ================"
           python long_term_monitor.py
