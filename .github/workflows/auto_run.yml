@@ -6,24 +6,25 @@ on:
       - main
   workflow_dispatch: # 保持允许手动触发测试
 
-  # ⏱ 【精简优化的时间防御矩阵】
+  # ⏱ 【3:30 尾盘唤醒型 · 黄金时间防御矩阵】
+  # 完美避开 22:30 - 03:30 无效睡眠时段，新增 03:30 核心尾盘末日大单穿透节点
   schedule:
-    # 1. 盘前对敲与暗池异动侦测 (北京时间 21:00) -> 覆盖盘前主要放量时段
+    # 1. 🪐 盘前对敲与暗池异动侦测 (北京时间 21:00) 
     - cron: '0 13 * * 1-5'
     
-    # 2. 🔥 开盘冲锋爆破风向标 (夏令时 21:45 / 冬令时 22:45 开盘一刻钟穿透)
-    - cron: '45 13 * * 1-5' # 夏令时北京时间 21:45
-    - cron: '45 14 * * 1-5' # 冬令时北京时间 22:45
+    # 2. ⚔️ 睡前最后一击 (北京时间 晚上 22:15) -> 距离 22:30 睡觉仅 15 分钟
+    - cron: '15 14 * * 1-5'
     
-    # 3. 盘中激战与趋势确认 (北京时间 凌晨 01:00)
-    - cron: '0 17 * * 1-5'
+    # 3. 🔥 ⚡【3:30 尾盘特快】美股收盘前 30 分钟末日大单决战穿透 (北京时间 凌晨 03:30) ⚡ 🔥
+    - cron: '30 19 * * 1-5'
     
-    # 4. 🌙 盘后最终结算与长线价值复盘 (北京时间 清晨 05:30 / 06:30) -> 确保雅虎数据最终校准
-    - cron: '30 21 * * 1-5' # 夏令时收盘后 05:30
-    - cron: '30 22 * * 1-5' # 冬令时收盘后 06:30
+    # 4. 🌙 夏令时盘后最终结算复盘 (北京时间 清晨 05:45) -> 醒来总账单
+    - cron: '45 21 * * 1-5'
+    
+    # 5. ❄️ 冬令时盘后最终结算复盘 (北京时间 清晨 06:45) -> 醒来总账单
+    - cron: '45 22 * * 1-5'
 
 jobs:
-  # ⚙️ 基础构建：合并流水线。利用单 Job 并行或串行，共享缓存，完美解决环境初始化耗时问题
   quant-monitor-flow:
     runs-on: ubuntu-latest
     
@@ -43,17 +44,15 @@ jobs:
           if [ -f requirements.txt ]; then 
             pip install -r requirements.txt
           else
-            # 💡 核心升级：强行注入谷歌官方最新 SDK：google-genai，保障云端大模型接口畅通
             pip install yfinance pandas finvizfinance requests lxml jinja2 google-genai
           fi
 
       - name: ⚔️ 运行 [短线游资席位爆破雷达]
-        # 允许短线任务即使报错，长线任务也能继续执行
         continue-on-error: true 
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 🚨 核心绑定：注入谷歌 AI 密钥，解除短线分析限制
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }} # 保留原有通道作为多模态双保险
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 核心绑定：注入谷歌 AI 密钥
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }} 
         run: |
           echo "================ 开始执行：全美股短线游资异动穿透 ================"
           python monitor.py
@@ -61,7 +60,7 @@ jobs:
       - name: 💎 运行 [长线核心资产价值雷达]
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 🚨 核心绑定：注入谷歌 AI 密钥，激活长线宏观量化测测谎仪
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }} # 核心绑定：注入谷歌 AI 密钥
         run: |
           echo "================ 开始执行：长线多因子价值股票筛选 ================"
           python long_term_monitor.py
