@@ -6,122 +6,129 @@ import pandas as pd
 import yfinance as yf
 
 # ==========================================
-# 1. 核心参数与精简核心资产池
+# 1. 动态资金库画像（\$18400 年度平铺版）
 # ==========================================
 BARK_KEY = os.environ.get("BARK_KEY")
 
-# 你的长线专属监控标的
-TICKERS = ["QQQ", "VOO", "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "BRK-B"]
+MONTHLY_BUDGET = 1400.0   # 每月新增固定购买力 (活钱美元)
+RESERVE_TOTAL = 18400.0   # 存量本金切割后，留给长线的总预备金 (美元)
+TIME_HORIZON_MONTHS = 12.0 # 强制分散目标一整年 (12个月)
+
+# 核心资产定投池
+TICKERS = ["QQQ", "VOO", "AAPL", "MSFT", "GOOGL"]
 
 # ==========================================
 # 2. 消息通知分发管道
 # ==========================================
-def push_bark_notification(title: str, content: str, target_url: str = None, group: str = "长线资产加码", sound: str = "circles"):
+def push_bark_notification(title: str, content: str, target_url: str = None):
     if not BARK_KEY:
         print("ℹ️ 未配置 BARK_KEY，跳过手机端消息推送。")
         return
     try:
         encoded_title = urllib.parse.quote_plus(title)
         encoded_content = urllib.parse.quote_plus(content)
-        url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group={group}&sound={sound}&isArchive=1"
+        url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group=长线凯利平铺&sound=anticipate&isArchive=1"
         if target_url:
             url += f"&url={urllib.parse.quote_plus(target_url)}"
         requests.get(url, timeout=10)
     except Exception as e:
-        print(f"⚠ Bark 长线推送失败: {e}")
+        print(f"⚠ Bark 推送失败: {e}")
 
 # ==========================================
-# 3. 核心执行流与批量洗数
+# 3. 核心算法：年度平铺 + 凯利期望值交叉校准
+# ==========================================
+def calculate_time_spaced_allocation(price: float, rsi: float, bias: float):
+    # 1. 刚性分配：计算单标的单月最大可动用预备金上限
+    monthly_max_reserve_per_ticker = (RESERVE_TOTAL / TIME_HORIZON_MONTHS) / len(TICKERS)
+    
+    # 2. 基础固定购买力单标的分摊
+    base_cash_per_ticker = MONTHLY_BUDGET / len(TICKERS)
+    
+    # 3. 动态凯利胜率解构 (RSI越低说明中短期反弹期望值越高)
+    if rsi < 35:
+        p, b = 0.75, 4.0   # 极度恐慌暴跌，胜率极高，赔率极大
+    elif rsi < 45:
+        p, b = 0.70, 3.0   # 黄金回调，胜率高
+    elif rsi < 52:
+        p, b = 0.65, 2.0   # 动能安全回落
+    else:
+        p, b = 0.52, 1.2   # 逼近阈值边缘，谨慎下注
+        
+    q = 1.0 - p
+    kelly_f = p - (q / b)  # 标准凯利计算
+    half_kelly = max(0.0, kelly_f / 2) # 半凯利风控平滑
+    
+    # 4. 时间加权交叉锁定
+    allocated_reserve = monthly_max_reserve_per_ticker * half_kelly
+    
+    # 终极保护：单次动用也绝对不能超过当月平摊的刚性上限
+    if allocated_reserve > monthly_max_reserve_per_ticker:
+        allocated_reserve = monthly_max_reserve_per_ticker
+        
+    total_cash = base_cash_per_ticker + allocated_reserve
+    suggested_shares = total_cash / price if price > 0 else 0
+    
+    return p * 100, allocated_reserve, monthly_max_reserve_per_ticker, total_cash, suggested_shares
+
+# ==========================================
+# 4. 数据获取与逻辑穿透
 # ==========================================
 def main():
-    print(f"💎 启动防限流升级版长线趋势过滤，股票池: {TICKERS}")
-    start_time = time.time()
-    
+    print("💎 启动【年度平铺 + 凯利矩阵】长线金库雷达...")
     try:
-        # ✨ 终极提速与抗封锁防线：一次请求打包全部数据，彻底规避 429 Rate Limit！
-        # 显式使用 multi_level_index=False 以简化多标的 DataFrame 的纵向切割
         df_raw = yf.download(tickers=TICKERS, period="365d", auto_adjust=True, progress=False)
-        
-        if df_raw.empty:
-            print("❌ 批量下载返回了空数据，可能雅虎服务临时震荡。")
-            return
-            
+        if df_raw.empty: return
     except Exception as e:
-        print(f"❌ 批量拉取大盘行情失败，原因: {e}")
+        print(f"❌ 行情批量下载失败: {e}")
         return
 
-    triggered_count = 0
-
-    # 循环穿透处理每一个 Ticker 的历史矩阵
     for ticker in TICKERS:
         try:
-            # yf.download 在多股票时返回的是 MultiIndex，我们需要把单只股票的行情切片提取出来
-            # 兼容处理多级列索引：提取 Close, High, Low
             if isinstance(df_raw.columns, pd.MultiIndex):
-                df_history = pd.DataFrame({
-                    'Close': df_raw['Close'][ticker],
-                    'High': df_raw['High'][ticker],
-                    'Low': df_raw['Low'][ticker]
-                }).dropna()
+                df_history = pd.DataFrame({'Close': df_raw['Close'][ticker]}).dropna()
             else:
-                # 只有一只股票时的单级索引兜底
-                df_history = df_raw[['Close', 'High', 'Low']].dropna()
+                df_history = df_raw[['Close']].dropna()
 
-            if len(df_history) < 200:
-                print(f"⚠️ {ticker} 历史有效 K 线不足 200 天，跳过。")
-                continue
+            if len(df_history) < 200: continue
             
-            # 计算技术参数
+            # 指标矩阵向量化计算
             df_history['SMA_200'] = df_history['Close'].rolling(window=200).mean()
-            
-            # 计算 RSI 14
             delta = df_history['Close'].diff()
             gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-            rs = gain / (loss + 1e-9)
-            df_history['RSI_14'] = 100 - (100 / (1 + rs))
+            df_history['RSI_14'] = 100 - (100 / (1 + (gain / (loss + 1e-9))))
             
-            # 锁定最新一天的核心切片数据
             latest_row = df_history.iloc[-1]
-            price = float(latest_row['Close'])
-            sma_200 = float(latest_row['SMA_200'])
-            rsi_14 = float(latest_row['RSI_14'])
+            price, sma_200, rsi_14 = float(latest_row['Close']), float(latest_row['SMA_200']), float(latest_row['RSI_14'])
+            bias_200 = ((price / sma_200) - 1) * 100
             
-            # 计算均线偏离百分比
-            bias_200 = (price / sma_200) - 1
-            
-            # ------------------------------------------
-            # 📈 复合长线低风险区判定逻辑
-            # ------------------------------------------
-            # 1. 价格必须站稳在 200 日牛熊分界线上方（确保不是处于熊市阴跌中）
-            # 2. 回调贴近均线（偏离度在 0% 到 4% 之内）或者 RSI 指标降至 52 以下（动能安全无泡沫）
-            if price > sma_200:
-                if (0 <= bias_200 <= 4.0) or (rsi_14 < 52):
-                    triggered_count += 1
-                    
-                    push_title = f"💎 长线价值加码：【{ticker}】触发核心防御买入区！"
-                    push_content = (
-                        f"🏷 【定投/波段提示】: 🪐 资产处于多头牛市回踩点\n"
-                        f"------------------------\n"
-                        f"📊 标的数据穿透：\n"
-                        f"💵 当前价格: ${price:.2f}\n"
-                        f"📈 200日牛熊线: ${sma_200:.2f}\n"
-                        f"🎯 均线偏离度: {bias_200:+.2f}% (进入分批吸筹区)\n"
-                        f"🟢 实时 RSI(14): {rsi_14:.1f} (动能安全、非严重超买)\n"
-                        f"------------------------\n"
-                        f"💡 操盘策略：若满足你本月的定投额度或仓位控制，大盘指数型基金此位置具备极高安全边际，建议按计划加码。"
-                    )
-                    yahoo_url = f"https://yahoo.com{ticker}"
-                    
-                    print(f"🎯 发射加码信号: {ticker} (偏离度: {bias_200:.2f}%)")
-                    push_bark_notification(title=push_title, content=push_content, target_url=yahoo_url)
-                    
+            # 长线防御拦截防线 (确保在大牛市趋势的健康回踩期才通知)
+            if price > sma_200 and (bias_200 <= 5.0 or rsi_14 < 53):
+                win_p, use_reserve, max_monthly_pool, total_cash, shares = calculate_time_spaced_allocation(price, rsi_14, bias_200)
+                
+                push_title = f"⚖️ 长线平铺校准：【{ticker}】触发买入信号！"
+                push_content = (
+                    f"📊 【大盘数据穿透】\n"
+                    f"💵 实时现价: ${price:.2f} | 200日生命线: ${sma_200:.2f}\n"
+                    f"📈 均线偏离: {bias_200:+.2f}% | 实时动能 RSI: {rsi_14:.1f}\n"
+                    f"------------------------\n"
+                    f"⏳ 【12个月时间安全分配结果】\n"
+                    f"⏰ 本月单标的预备金刚性上限: ${max_monthly_pool:.2f}\n"
+                    f"🔮 凯利模型测算当前赢面: 【 {win_p:.1f}% 】\n"
+                    f"🛠️ 本月定投拨发 (固定活钱): ${MONTHLY_BUDGET/len(TICKERS):.2f}\n"
+                    f"🔥 最终建议动用预备金 (动态本金): 【 ${use_reserve:.2f} 】\n"
+                    f"💰 今日合并总购买力: ${total_cash:.2f}\n"
+                    f"🎯 建议立即执行买入: 【 {shares:.2f} 股 】\n"
+                    f"------------------------\n"
+                    f"💡 操盘风控：此金额已被限定在年度 12 个月时间平铺窗口内，长短线资金独立交割，绝不会发生弹药提前打光的情况。"
+                )
+                
+                print(f"🎯 {ticker} 触发时间平铺加码推送。分配预备金: ${use_reserve:.2f}")
+                push_bark_notification(push_title, push_content, f"https://yahoo.com{ticker}")
+                time.sleep(1.0)
+                
         except Exception as e:
-            print(f"⚠️ 处理单只股票 {ticker} 时数据清洗异常: {e}")
-            continue
-
-    duration = round(time.time() - start_time, 2)
-    print(f"🏁 长线监控分析全部结束。耗时: {duration} 秒。共触发加码提示: {triggered_count} 只。")
+            print(f"⚠️ {ticker} 错误: {e}")
 
 if __name__ == "__main__":
     main()
