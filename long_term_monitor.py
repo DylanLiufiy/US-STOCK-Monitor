@@ -215,19 +215,40 @@ def main():
                 total_cash = base_cash_per_ticker + allocated_reserve
                 suggested_shares = total_cash / price if price > 0 else 0
                 
-                # 控制台日志留痕
-                log_text = f"""🔥 [量化触发核心逻辑归档] - {ticker}
-  |- Google AI 胜率预测: {google_p:.1f}%
-  |- Google 情绪乘数: {google_mult:.2f}x
-  |- 华尔街 VIX 抄底乘数: {vix_booster:.2f}x
-  |- 半凯利仓位计算结果: {half_kelly*100:.2f}%
-  |- 本月预算固定活钱: ${base_cash_per_ticker:.2f}
-  |- 建议动用预备金本金: ${allocated_reserve:.2f}
-  |- 🧠 谷歌大脑研判因果: {ai_reason}
---------------------------------------------------"""
-                print(log_text, flush=True)
+                # ✨ 🌟 终极代码格式修复：采用独立单行最纯粹的 print，彻底绝后任何引号/括号错位 Bug！ 🌟
+                print("--------------------------------------------------", flush=True)
+                print(f"🔥 [量化触发核心逻辑归档] - {ticker}", flush=True)
+                print(f"  |- Google AI 胜率预测: {google_p:.1f}%", flush=True)
+                print(f"  |- Google 情绪乘数: {google_mult:.2f}x", flush=True)
+                print(f"  |- 华尔街 VIX 抄底乘数: {vix_booster:.2f}x", flush=True)
+                print(f"  |- 半凯利仓位计算结果: {half_kelly*100:.2f}%", flush=True)
+                print(f"  |- 本月预算固定活钱: ${base_cash_per_ticker:.2f}", flush=True)
+                print(f"  |- 建议动用预备金本金: ${allocated_reserve:.2f}", flush=True)
+                print(f"  |- 🧠 谷歌大脑研判因果: {ai_reason}", flush=True)
+                print("--------------------------------------------------", flush=True)
                 
                 push_title = f"🏛️ 大盘核心加码：【{ticker}】触发"
                 
-                push_content = f"""🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x
-💵 预备金本金: +${allocated_reserve:.2f}
+                # 消息推送短卡片内容拼接（安全平铺）
+                push_content = f"🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x\n" \
+                               f"💵 预备金本金: +${allocated_reserve:.2f}\n" \
+                               f"💰 今日合并购买力: 【 {total_cash:.2f} 】\n" \
+                               f"🎯 建议立即建仓执行: 【 {suggested_shares:.2f} 股 】\n" \
+                               f"🧠 核心逻辑: {ai_reason}"
+                
+                with open("stock_monitor_report.md", "w", encoding="utf-8") as f:
+                    f.write(f"# {push_title}\n\n{push_content}")
+                    
+                push_bark_notification(push_title, push_content, f"https://yahoo.com{ticker}")
+                time.sleep(1.0)
+            else:
+                print(f"🟢 {ticker} 处于高位运行，暂未跌入量化买入盲区。")
+                
+        except Exception as e:
+            print(f"⚠️ {ticker} 绑定计算异常: {e}")
+
+    print("==================================================")
+    print(f"🏁 长线指数扫描全部结束。共触发加码提示: {triggered_count} 只。")
+    print("================================================== ")
+
+if __name__ == "__main__":
