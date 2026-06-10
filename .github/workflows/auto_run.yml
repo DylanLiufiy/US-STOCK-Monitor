@@ -1,80 +1,74 @@
 name: US Stock Master Quant Monitor
 
 on:
-  # ✨ 新增：只要向 main 分支提交或推送代码，就立刻触发一次运行检验
   push:
     branches:
       - main
-
-  # ⏱ 【终极时间防御矩阵】（GitHub 强制 UTC 时区，以下已完美兼容全年度美股夏/冬令时转换）
-  schedule:
-    # 1. 盘前定投诊断（兼顾夏/冬令时盘前）：UTC 01:30 / 02:30 -> 北京时间 09:30 / 10:30
-    - cron: '30 1 * * 1-5'
-    - cron: '30 2 * * 1-5'
-    
-    # 2. 午间趋势复盘（兼顾夏/冬令时午盘）：UTC 06:30 / 07:30 -> 北京时间 14:30 / 15:30
-    - cron: '30 6 * * 1-5'
-    - cron: '30 7 * * 1-5'
-    
-    # 3. 美股开盘前黄金一小时：UTC 12:30 / 13:30 -> 北京时间 20:30 / 21:30
-    - cron: '30 12 * * 1-5'
-    - cron: '30 13 * * 1-5'
-    
-    # 4. 🔥 开盘冲锋爆破核心眼位（兼顾夏令时21:45与冬令时22:45开盘一刻钟风向标）
-    - cron: '45 13 * * 1-5'  # 夏令时对应北京时间 21:45
-    - cron: '45 14 * * 1-5'  # 冬令时对应北京时间 22:45
-    
-    # 5. 深夜与凌晨黑天鹅暗哨守卫（半夜系统性暴跌强推唤醒）
-    - cron: '0 18 * * 1-5'   # 北京时间 凌晨 02:00
-    - cron: '30 19 * * 1-5'  # 北京时间 清晨 03:30
-    
   workflow_dispatch: # 保持允许手动触发测试
 
+  # ⏱ 【精简优化的时间防御矩阵】
+  # 移除了无效的不开盘复盘时段，精准卡位美股核心异动节点，节省 GitHub Actions 免费额度
+  schedule:
+    # 1. 盘前对敲与暗池异动侦测 (北京时间 21:00) -> 覆盖盘前主要放量时段
+    - cron: '0 13 * * 1-5'
+    
+    # 2. 🔥 开盘冲锋爆破风向标 (夏令时 21:45 / 冬令时 22:45 开盘一刻钟穿透)
+    - cron: '45 13 * * 1-5' # 夏令时北京时间 21:45
+    - cron: '45 14 * * 1-5' # 冬令时北京时间 22:45
+    
+    # 3. 盘中激战与趋势确认 (北京时间 凌晨 01:00)
+    - cron: '0 17 * * 1-5'
+    
+    # 4. 🌙 盘后最终结算与长线价值复盘 (北京时间 清晨 05:30 / 06:30) -> 确保雅虎数据最终校准
+    - cron: '30 21 * * 1-5' # 夏令时收盘后 05:30
+    - cron: '30 22 * * 1-5' # 冬令时收盘后 06:30
+
 jobs:
-  # ⚔️ 敢死队 Job：独立扫描全美股放量爆破
-  monitor-sniper-job:
+  # ⚙️ 基础构建：合并流水线。利用单 Job 并行或串行，不仅共享缓存，还能完美解决环境初始化耗时问题
+  quant-monitor-flow:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout Code
+      - name: 📥 检出代码仓库
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: 🐍 初始化 Python 环境
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # 自动开启 pip 缓存，第二次运行速度提升 300%
 
-      - name: Install Dependencies
+      - name: 📦 安装量化核心依赖
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements.txt ]; then 
+            pip install -r requirements.txt
+          else
+            pip install yfinance pandas finvizfinance requests lxml jinja2
+          fi
 
-      - name: Execute Short-Term Sniper
+      - name: ⚔️ 运行 [短线游资席位爆破雷达]
+        # 允许短线任务即使报错，长线任务也能继续执行
+        continue-on-error: true 
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }} # 🚨 核心修复：注入 AI 密钥，解除纯技术面拦截限制
         run: |
-          echo "================ 执行：全美股主力爆破雷达 ================"
+          echo "================ 开始执行：全美股短线游资异动穿透 ================"
           python monitor.py
 
-  # 💎 正规军 Job：独立扫描中长线资产加码（并行隔离）
-  long-term-job:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-      - name: Execute Long-Term Core
+      - name: 💎 运行 [长线核心资产价值雷达]
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
         run: |
-          echo "================ 执行：长线核心资产加码雷达 ================"
+          echo "================ 开始执行：长线多因子价值股票筛选 ================"
           python long_term_monitor.py
+
+      - name: 💾 持久化归档长线监控报告
+        if: always() # 确保即使策略未触发任何股票，也将生成的 md 报告安全归档
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-monitor-reports
+          path: |
+            stock_monitor_report.md
+          retention-days: 7 # 在 GitHub Actions 面板保留 7 天历史记录供下载查询
