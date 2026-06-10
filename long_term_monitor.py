@@ -215,7 +215,7 @@ def main():
                 total_cash = base_cash_per_ticker + allocated_reserve
                 suggested_shares = total_cash / price if price > 0 else 0
                 
-                # ✨ 🌟 终极语法重构：改用大括号三引号字符串，彻底消灭未闭合括号错误！ 🌟
+                # 控制台日志留痕
                 log_text = f"""🔥 [量化触发核心逻辑归档] - {ticker}
   |- Google AI 胜率预测: {google_p:.1f}%
   |- Google 情绪乘数: {google_mult:.2f}x
@@ -228,5 +228,6 @@ def main():
                 print(log_text, flush=True)
                 
                 push_title = f"🏛️ 大盘核心加码：【{ticker}】触发"
-                push_content = (
-                    f"🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x\n" )
+                
+                push_content = f"""🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x
+💵 预备金本金: +${allocated_reserve:.2f}
