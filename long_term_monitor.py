@@ -229,4 +229,4 @@ def main():
                 
                 push_title = f"🏛️ 大盘核心加码：【{ticker}】触发"
                 push_content = (
-                    f"🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x\n"
+                    f"🔮 AI胜率: {google_p:.1f}% | VIX乘数: {vix_booster:.1f}x\n" )
