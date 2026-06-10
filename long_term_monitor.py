@@ -1,192 +1,181 @@
 import os
-import sys
 import time
-import urllib.parse
-from datetime import datetime, timedelta
-import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import pandas as pd
 import yfinance as yf
 
-# ==================== 🏛 商业级长线核心配置区域 ====================
-BARK_KEY = os.environ.get("BARK_KEY")
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY") 
+# ==========================================
+# 1. 配置参数与自动股票池获取
+# ==========================================
+MAX_WORKERS = 12      # 并发线程数（10-15最佳，过高易被雅虎限流）
+MAX_RETRIES = 3       # 下载失败后的最大重试次数
+BACK_DAYS = 365       # 获取历史数据的天数（确保满足200天均线计算）
 
-VIX_ANCHOR = "^VIX"
-SECTOR_ANCHOR = "SOXX"
-
-INTELLIGENT_ETFS = ["VOO", "QQQ"]
-LONG_TERM_STOCKS = ["GOOG"] 
-
-ROE_THRESHOLD = 0.15
-PE_MAX_THRESHOLD = 35
-RSI_BUY_LINE = 35
-LONG_TERM_FLEXIBLE_RESERVE = 20000
-# ==================================================================
-
-def ask_ai_investigation(ticker_symbol: str, current_price: float, current_rsi: float) -> str:
-    """🧠 商业级 AI 事件驱动引擎：秒级拆解大资金建仓背后的深层原因"""
-    if not DEEPSEEK_API_KEY:
-        return "ℹ 未配置 AI 情绪钥匙，系统启动纯技术面拦截通告。"
+def get_sp500_tickers():
+    """
+    从维基百科自动实时抓取最新的标普 500 成分股列表。
+    如果抓取失败，则启用标准蓝筹股作为兜底。
+    """
     try:
-        t = yf.Ticker(ticker_symbol)
-        news_list = t.news[:3]
-        news_titles = [n.get('title', '') for n in news_list if n.get('title')]
-        news_context = " | ".join(news_titles) if news_titles else "暂无近两日突发重大公告"
-        
-        prompt = (
-            f"作为资深华尔街量化策略师，请用一句话（100字内，极简大白话）犀利拆解美股【{ticker_symbol}】"
-            f"当前技术面触发黄金坑买入信号（股价${current_price:.2f}，RSI为{current_rsi:.1f}）的底层催化剂。"
-            f"请结合其最新突发新闻线索：{news_context}。告诉散户这是机构恶意诱空还是真金白银的产业利好，"
-            f"并给出一句核心行动建议。"
-        )
-        headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "deepseek-chat",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.2
-        }
-        response = requests.post("https://deepseek.com", json=data, headers=headers, timeout=12)
-        if response.status_code == 200:
-            return response.json()['choices']['message']['content'].strip()
+        url = "https://wikipedia.org"
+        tables = pd.read_html(url)
+        df = tables[0]
+        # 替换雅虎财经中特殊的符号点，例如 BRK.B 替换为 BRK-B
+        tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
+        return tickers
     except Exception as e:
-        print(f"⚠ AI 新闻情绪引擎分析发生异常: {e}")
-    return "💡 [系统提示] 盘面突发异动，技术面共振进入左侧加仓区，请密切关注今晚财报披露或美联储纪要。"
+        print(f"⚠️ 无法实时获取标普500列表 ({e})，正在启用核心蓝筹股作为兜底...")
+        return [
+            "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B", 
+            "V", "JPM", "UNH", "JNJ", "WMT", "PG", "XOM", "AMD", "COST"
+        ]
 
-def calculate_rsi_and_atr(df, period=14):
-    """计算精准指标"""
-    if len(df) < period + 1: return 50, 0.0
-    deltas = df['Close'].diff().dropna()
-    gains = deltas.clip(lower=0)
-    losses = -deltas.clip(upper=0)
-    avg_gain = gains.ewm(com=period-1, min_periods=period).mean()
-    avg_loss = losses.ewm(com=period-1, min_periods=period).mean()
-    rsi = 100 if float(avg_loss.iloc[-1]) == 0 else (100 - (100 / (1 + rs))).iloc[-1]
+# ==========================================
+# 2. 核心量化指标计算
+# ==========================================
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    输入单只股票的历史 DataFrame，计算技术指标。
+    必须使用 'Adj Close' (后复权价) 避免因分红拆股导致指标失真。
+    """
+    if df.empty or len(df) < 200:
+        return df
+        
+    # 计算 200日简单移动平均线 (SMA 200)
+    df['SMA_200'] = df['Adj Close'].rolling(window=200).mean()
     
-    high_low = df['High'] - df['Low']
-    high_close = (df['High'] - df['Close'].shift()).abs()
-    low_close = (df['Low'] - df['Close'].shift()).abs()
-    tr = high_low.combine(high_close, max).combine(low_close, max)
-    atr = tr.rolling(window=period).mean().iloc[-1]
-    return rsi, float(atr)
+    # 计算 14日相对强弱指标 (RSI 14)
+    delta = df['Adj Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / (loss + 1e-9)  # 防止除以0
+    df['RSI_14'] = 100 - (100 / (1 + rs))
+    
+    return df
 
-def process_stock_signal(ticker_symbol: str, is_etf: bool, current_vix: float, sector_rsi: float, vix_strategy: str, current_flexible_spend: float, status_label: str):
-    try:
-        ticker = yf.Ticker(ticker_symbol)
-        if not is_etf:
-            try:
-                info = ticker.info
-                roe = info.get("returnOnEquity", 0)
-                pe = info.get("trailingPE", 0)
-                peg = info.get("pegRatio", 1.0)
-                if roe is None or roe < ROE_THRESHOLD: return False
-                if pe is None or pe > PE_MAX_THRESHOLD or pe <= 0: return False
-                if peg is not None and peg > 1.5: return False
-            except Exception: return False
+# ==========================================
+# 3. 容错与并发数据获取
+# ==========================================
+def fetch_stock_data(ticker: str) -> dict:
+    """
+    单只股票的数据拉取函数。包含重试机制、技术面计算与基本面多因子过滤。
+    """
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            # 1. 初始化 Ticker 并获取基本面财务数据
+            ticker_obj = yf.Ticker(ticker)
+            info = ticker_obj.info
+            
+            # 提取基本面因子（加入默认值兜底，防止无数据报错）
+            pe_ratio = info.get('trailingPE', None)
+            profit_margin = info.get('profitMargins', None)
+            current_price = info.get('currentPrice', None)
+            
+            # 2. 下载历史 K 线数据 (自动使用后复权)
+            df_history = ticker_obj.history(period=f"{BACK_DAYS}d")
+            
+            if df_history.empty or len(df_history) < 200:
+                return {"ticker": ticker, "status": "error", "reason": "历史数据不足200天"}
+            
+            # 3. 向量化计算指标
+            df_history = calculate_indicators(df_history)
+            latest_row = df_history.iloc[-1]
+            
+            # 提取最新一天的计算结果
+            price = current_price if current_price else latest_row['Adj Close']
+            sma_200 = latest_row['SMA_200']
+            rsi_14 = latest_row['RSI_14']
+            
+            return {
+                "ticker": ticker,
+                "status": "success",
+                "price": round(price, 2) if price else None,
+                "sma_200": round(sma_200, 2) if not pd.isna(sma_200) else None,
+                "rsi_14": round(rsi_14, 2) if not pd.isna(rsi_14) else None,
+                "pe_ratio": round(pe_ratio, 2) if pe_ratio else None,
+                "profit_margin": round(profit_margin * 100, 2) if profit_margin else None
+            }
+            
+        except Exception as e:
+            if attempt == MAX_RETRIES:
+                return {"ticker": ticker, "status": "error", "reason": f"重试{MAX_RETRIES}次后仍失败: {str(e)}"}
+            time.sleep(1.5 * attempt) # 指数级退避延迟，降低被雅虎拒绝的概率
 
-        # ✨ 亮点提升：开启 prepost=True 强行穿透并捕获盘前盘后的真实量价轨迹，杜绝信号滞后
-        hist = ticker.history(period="250d", prepost=True).dropna(subset=['Close']) 
-        if len(hist) < 210: return False
-
-        current_price = float(hist['Close'].iloc[-1])
-        ma200 = float(hist['Close'].rolling(window=200).mean().iloc[-1])
-        current_rsi, atr_val = calculate_rsi_and_atr(hist)
-        is_stock_above_ma200 = current_price > ma200
-
-        if is_stock_above_ma200 and (current_rsi <= RSI_BUY_LINE or sector_rsi <= 35):
-            suggested_shares = current_flexible_spend / current_price if current_price > 0 else 0
-            stop_loss_price = current_price - (2.5 * atr_val) if atr_val > 0 else current_price * 0.93
-
-            print(f"🤖 正在调用 AI 情绪控制中枢...")
-            ai_intelligence = ask_ai_investigation(ticker_symbol, current_price, current_rsi)
-            yahoo_finance_url = f"https://yahoo.com{ticker_symbol}"
-
-            push_title = f"💎 商业价值发现：【{ticker_symbol}】触及量化左侧加仓点！"
-            push_content = (
-                f"🏷 【当前系统阶段】: {status_label}\n"
-                f"🧐 实时 VIX 恐慌指数: {current_vix:.2f} | 行业 RSI: {sector_rsi:.1f}\n"
-                f"🗺 宏观流动性大局观: {vix_strategy}\n"
-                f"------------------------\n"
-                f"🧠 【AI 事件驱动深度因果剖析】:\n"
-                f"🗣 {ai_intelligence}\n"
-                f"------------------------\n"
-                f"💰 实时价: ${current_price:.2f} (包含盘前盘后追踪，稳守MA200生命线 ${ma200:.2f} 上方)\n"
-                f"🚨 【储备金加码精准跟单】:\n"
-                f"💵 本次分配子弹: 【 ${current_flexible_spend:,.0f} 美元 】\n"
-                f"🛒 建议模拟买入股数: 【 {suggested_shares:.0f} 股 】\n"
-                f"🛑 【ATR 动态波幅防线】: 止损价设为 【 ${stop_loss_price:.2f} 】(已根据个股盘前+日内波幅动态调整)\n"
-                f"------------------------\n"
-                f"📅 【每月发薪日正规军强制纪律单】:\n"
-                f"💵 工资分配: 发薪后 $1,400 新资金请分别对半 700 美元买入 VOO 与 QQQ 底仓！"
-            )
-            encoded_title = urllib.parse.quote_plus(push_title)
-            encoded_content = urllib.parse.quote_plus(push_content)
-            url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group=灵活资金加码雷达&sound=calypso&isArchive=1&url={urllib.parse.quote_plus(yahoo_finance_url)}"
-            if BARK_KEY: requests.get(url, timeout=10)
-            time.sleep(1.5)
-            return True 
-    except Exception as e:
-        print(f"❌ 处理 {ticker_symbol} 异常: {e}")
-    return False
-
-def execute_combined_diagnosis():
-    current_date = datetime.now()
-    is_live_trading = current_date >= datetime(2026, 7, 1)
-    status_label = "🛒 实盘正式开火" if is_live_trading else "🧪 2026实战模拟推演期"
-    print(f"🚀 启动系统 [当前状态：{status_label}]...")
-
-    try:
-        vfc = yf.Ticker(VIX_ANCHOR)
-        vix_hist = vfc.history(period="5d").dropna(subset=['Close'])
-        current_vix = float(vix_hist['Close'].iloc[-1])
-        
-        sector = yf.Ticker(SECTOR_ANCHOR)
-        # 宏观大盘指数也强行支持盘前盘后穿透计算，提前捕获隔夜黑天鹅
-        sector_hist = sector.history(period="250d", prepost=True).dropna(subset=['Close'])
-        
-        high_low = sector_hist['High'] - sector_hist['Low']
-        high_close = (sector_hist['High'] - sector_hist['Close'].shift()).abs()
-        low_close = (sector_hist['Low'] - sector_hist['Close'].shift()).abs()
-        tr = high_low.combine(high_close, max).combine(low_close, max)
-        
-        deltas = sector_hist['Close'].diff().dropna()
-        gains = deltas.clip(lower=0)
-        losses = -deltas.clip(upper=0)
-        avg_gain = gains.ewm(com=13, min_periods=14).mean()
-        avg_loss = losses.ewm(com=13, min_periods=14).mean()
-        rs = avg_gain / avg_loss
-        sector_rsi = 100 if float(avg_loss.iloc[-1]) == 0 else (100 - (100 / (1 + rs))).iloc[-1]
-    except Exception as e:
-        print(f"❌ 宏观大盘指数获取失败: {e}")
+# ==========================================
+# 4. 主执行流程与策略筛选
+# ==========================================
+def main():
+    # 动态获取股票池
+    tickers = get_sp500_tickers()
+    print(f"🚀 开始多线程增效监控，当前股票池总数: {len(tickers)} 只...")
+    start_time = time.time()
+    
+    results = []
+    # 使用线程池加速网络 I/O 密集型任务
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        future_to_ticker = {executor.submit(fetch_stock_data, t): t for t in tickers}
+        for future in as_completed(future_to_ticker):
+            res = future.result()
+            if res and res.get("status") == "success":
+                results.append(res)
+                
+    if not results:
+        print("❌ 未成功获取到任何股票数据，脚本退出。")
         return
+        
+    df_all = pd.DataFrame(results)
+    
+    # ------------------------------------------
+    # 5. 长线量化多因子筛选条件
+    # ------------------------------------------
+    # 确保价格、均线和 RSI 数据有效
+    df_all = df_all.dropna(subset=['price', 'sma_200', 'rsi_14'])
+    
+    # 条件1 (技术面): 价格站上200日均线（多头趋势）
+    cond_trend = df_all['price'] > df_all['sma_200']
+    # 条件2 (技术面): RSI < 60（非严重超买状态，留有上涨空间）
+    cond_rsi = df_all['rsi_14'] < 60
+    # 条件3 (基本面): 存在市盈率且 0 < PE < 35（剔除无利润亏损股以及高泡沫股）
+    cond_pe = (df_all['pe_ratio'].notna()) & (df_all['pe_ratio'] > 0) & (df_all['pe_ratio'] < 35)
+    # 条件4 (基本面): 净利润率 > 10%（具备较强的行业赚钱护城河）
+    cond_margin = (df_all['profit_margin'].notna()) & (df_all['profit_margin'] > 10)
+    
+    # 综合过滤
+    df_filtered = df_all[cond_trend & cond_rsi & cond_pe & cond_margin]
+    
+    # 按市盈率低到高排序，优先展示低估值优质资产
+    df_filtered = df_filtered.sort_values(by="pe_ratio", ascending=True)
+    
+    # ------------------------------------------
+    # 6. 生成漂亮的 Markdown 报告
+    # ------------------------------------------
+    duration = round(time.time() - start_time, 2)
+    
+    markdown_output = f"""# 📈 美股长线策略每日监控报告
+- **扫描范围**: 标普 500 成分股 (S&P 500)
+- **执行耗时**: {duration} 秒
+- **成功请求数**: {len(df_all)} 只
+- **触发多头且估值合理股票数**: {len(df_filtered)} 只
 
-    if current_vix >= 35:
-        allocation_ratio = 0.60
-        vix_strategy = "💥 历史级恐慌暴跌，非理性踩踏彻底释放！系统下发大仓位极限加码指令。"
-    elif 25 <= current_vix < 35:
-        allocation_ratio = 0.30
-        vix_strategy = "🌊 市场处于标准中级周期黄金坑，建议动用 30% 储备子弹分批越跌越买。"
+### 🎯 筛选通过列表 (多头趋势 + 低估值 + 强盈利)
+"""
+    if df_filtered.empty:
+        markdown_output += "\n> 💨 今日暂无股票满足复合筛选条件。\n"
     else:
-        allocation_ratio = 0.10
-        vix_strategy = "⚖ 大盘微幅正常回调，后续仍有探底风险，建议轻仓试探建仓。"
-
-    current_flexible_spend = LONG_TERM_FLEXIBLE_RESERVE * allocation_ratio
-    any_triggered = False
-
-    for etf_symbol in INTELLIGENT_ETFS:
-        if process_stock_signal(etf_symbol, True, current_vix, sector_rsi, vix_strategy, current_flexible_spend, status_label):
-            any_triggered = True
-
-    for stock_symbol in LONG_TERM_STOCKS:
-        if process_stock_signal(stock_symbol, False, current_vix, sector_rsi, vix_strategy, current_flexible_spend, status_label):
-            any_triggered = True
-
-    if not any_triggered:
-        encoded_title = urllib.parse.quote_plus("🟢 长线加码雷达：安全站岗中")
-        encoded_content = urllib.parse.quote_plus(f"核心量化指标检测完毕（包含盘前全量穿透）。当前大盘风控 VIX: {current_vix:.2f} | 行业芯片 RSI: {sector_rsi:.1f}。无雷股异动。")
-        url = f"https://api.day.app/{BARK_KEY}/{encoded_title}/{encoded_content}?group=系统状态&sound=none&isArchive=1"
-        if BARK_KEY: requests.get(url, timeout=10)
+        # 美化表格列名
+        report_table = df_filtered.rename(columns={
+            "ticker": "代码", "price": "现价 ($)", "sma_200": "200日均线", 
+            "rsi_14": "RSI(14)", "pe_ratio": "市盈率(PE)", "profit_margin": "净利润率 (%)"
+        })
+        markdown_output += report_table[[
+            "代码", "现价 ($)", "200日均线", "RSI(14)", "市盈率(PE)", "净利润率 (%)"
+        ]].to_markdown(index=False)
+        
+    # 同时输出到控制台与本地文件
+    print("\n" + markdown_output)
+    with open("stock_monitor_report.md", "w", encoding="utf-8") as f:
+        f.write(markdown_output)
+    print("💾 报告已成功保存至本地本地文件: stock_monitor_report.md")
 
 if __name__ == "__main__":
-    execute_combined_diagnosis()
+    main()
